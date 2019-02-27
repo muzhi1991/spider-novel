@@ -241,55 +241,59 @@ def check_args():
     return (cmd, cmd_arg)
 
 
-# 输出两个部分
-(cmd, cmd_arg) = check_args()
-if cmd == "detail":
-    eprint("spider:"+cmd + " " + str(cmd_arg))
-    proxy = cmd_arg.get("proxy", {})
-    res = spider_book_detail(cmd_arg['book_url'], proxy)
-    print(json.dumps(res, ensure_ascii=False))
-elif cmd == "content":
+def main():
+    # 输出两个部分
+    (cmd, cmd_arg) = check_args()
+    if cmd == "detail":
+        eprint("spider:"+cmd + " " + str(cmd_arg))
+        proxy = cmd_arg.get("proxy", {})
+        res = spider_book_detail(cmd_arg['book_url'], proxy)
+        print(json.dumps(res, ensure_ascii=False))
+    elif cmd == "content":
 
-    book_url = cmd_arg.get("book_url", "")
-    interval = int(cmd_arg.get("interval", "0"))
-    proxy = cmd_arg.get("proxy", {})
+        book_url = cmd_arg.get("book_url", "")
+        interval = int(cmd_arg.get("interval", "0"))
+        proxy = cmd_arg.get("proxy", {})
 
-    eprint("spider:"+cmd + " " + str(cmd_arg), book_url,
-           cmd_arg['content_url'], "间隔:", interval)
-    res = dict({"contents": []})
+        eprint("spider:"+cmd + " " + str(cmd_arg), book_url,
+            cmd_arg['content_url'], "间隔:", interval)
+        res = dict({"contents": []})
 
-    for i, url in enumerate(cmd_arg['content_url']):
-        eprint("spider:", time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
-               "开始爬第", i, "个：", url)
-        t, c = spider_content(url, book_url, proxy)
-        if t is not None:
-            res["contents"].append({
-                "title": t,
-                "content": c
-            })
-        else:
-            res["contents"].append({
-            })
-        sleep_time = interval
-        if interval == -1:
-            if c is None:
-                c = ""
-            sleep_time = abs(max(300, len(c))/30*numpy.random.normal())
-        if i != (len(cmd_arg['content_url'])-1) and sleep_time > 0:
-            eprint("spider:", "爬到：", t)
-            eprint("spider:", "伪装睡眠：", sleep_time, "秒",)
-            time.sleep(sleep_time)
+        for i, url in enumerate(cmd_arg['content_url']):
+            eprint("spider:", time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
+                "开始爬第", i, "个：", url)
+            t, c = spider_content(url, book_url, proxy)
+            if t is not None:
+                res["contents"].append({
+                    "title": t,
+                    "content": c
+                })
+            else:
+                res["contents"].append({
+                })
+            sleep_time = interval
+            if interval == -1:
+                if c is None:
+                    c = ""
+                sleep_time = abs(max(300, len(c))/30*numpy.random.normal())
+            if i != (len(cmd_arg['content_url'])-1) and sleep_time > 0:
+                eprint("spider:", "爬到：", t)
+                eprint("spider:", "伪装睡眠：", sleep_time, "秒",)
+                time.sleep(sleep_time)
 
-    print(json.dumps(res, ensure_ascii=False))
-    # if 'book_url' in cmd_arg:
-    #     spider_content(cmd_arg['book_url'],cmd_arg)
-    # else:
-    #     spider_content(cmd_arg['book_url'])
-elif cmd == "test":
-    if 'book_url' in cmd_arg:
-        start_spider(cmd_arg['book_url'])
-    pass
+        print(json.dumps(res, ensure_ascii=False))
+        # if 'book_url' in cmd_arg:
+        #     spider_content(cmd_arg['book_url'],cmd_arg)
+        # else:
+        #     spider_content(cmd_arg['book_url'])
+    elif cmd == "test":
+        if 'book_url' in cmd_arg:
+            start_spider(cmd_arg['book_url'])
+        pass
 
+
+if __name__ == '__main__':
+    main()
 
 # start_spider('http://www.aoyuge.com/34/34380/index.html')
 # proxies = {
