@@ -8,6 +8,8 @@ import numpy
 import argparse
 from argparse import RawTextHelpFormatter
 import json
+from urllib.parse import urlparse
+
 
 # pip3 install requests numpy pyquery
 
@@ -29,6 +31,13 @@ def process_abnormal_character(s):
     return "".join(s.split())
 
 
+def str_to_int(str, default=0):
+    try:
+        return int(str)
+    except ValueError:
+        return default
+
+
 ua_list = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0.2 Safari/605.1.15"
@@ -46,7 +55,7 @@ def start_spider(book_url, proxy={}):
     chapter_list = infos["chapter_list"]
     print("获取图书信息：", chapter_list)
     # 伪装睡眠
-    sleep_time = abs(100*numpy.random.normal())
+    sleep_time = abs(100 * numpy.random.normal())
     print("伪装睡眠：", sleep_time, "秒")
     time.sleep(sleep_time)
 
@@ -58,10 +67,10 @@ def start_spider(book_url, proxy={}):
               "开始爬：", chapter[0], chapter[1])
         # 爬文章内容
         res = spider_content(content_url, book_url, proxy)
-        print("爬到标题："+res[0])
+        print("爬到标题：" + res[0])
         print("爬到内容：", res[1])
         # 伪装睡眠
-        sleep_time = abs(len(res[1])/30*numpy.random.normal())
+        sleep_time = abs(len(res[1]) / 30 * numpy.random.normal())
         print("伪装睡眠：", sleep_time, "秒")
         time.sleep(sleep_time)
 
@@ -84,25 +93,48 @@ Returns:
 
 def spider_book_detail(book_url, proxy={}):
     book_headers = {**common_headers, 'If-None-Match': str(int(time.time()))}
-    response = requests.get(book_url, headers=book_headers, proxies=proxy)
-    doc = pq(response.content)
-    # doc = pq(etree.fromstring(response.text))
-    # print(doc.html())
+    response = requests.get(book_url, headers=book_headers, proxies=proxy, timeout=30)
+    return spider_parse_detail(book_url, response.content)
+
+
+def spider_parse_detail(book_url, html_content):
+    doc = pq(html_content)
     infos = parse_book_info(doc)
     chapter_list = parse_chapter_list(doc, book_url)
     infos["chapter_list"] = chapter_list
     infos["book_url"] = book_url
+    infos["book_icon"] = parse_icon_url(book_url)
     return infos
+
+
+def parse_icon_url(book_url):
+    # book_url:http://www.aoyuge.com/34/34380/index.html
+    if not book_url.startswith("http"):
+        book_url = "http://" + book_url
+    p = urlparse(book_url)
+    # pic: http://www.aoyuge.com/files/article/image/34/34380/34380s.jpg
+    p1 = "/".join(p.path.split("/")[:3])  # '/34/34380'
+    file = p1.split("/")[-1] + "s" + ".jpg"  # '34380s.jpg'
+    p_end = "/".join([p1, file])  # '/34/34380/34380s.jpg'
+    return p.scheme + "://" + p.netloc + "/files/article/image" + p_end
 
 
 def parse_book_info(doc):
     title = doc(".bookinfo .btitle")("h1").text()
-    author = doc(".bookinfo .btitle")("em")[0].text
-    last_chapter_info = doc(".bookinfo .stats .fl").text()
+    author = doc(".bookinfo .btitle")("em").text().split("：")[-1]  # '作者', '袖里箭']
+    last_chapter_info = doc(".bookinfo .stats .fl").text().split("：")[-1]  # '最新章节：第一千零四十七章 会议'
     # doc(".bookinfo .stats .fr").text()
     number_words, status, update_time = [
         e.text for e in doc(".bookinfo .stats .fr i")]
+    number_words = str_to_int(number_words)
+    if status == '连载中':
+        status = 0
+    else:
+        status = 1
     book_intro = process_abnormal_character(doc(".bookinfo .intro").text())
+    book_intro = "".join(book_intro.split("：")[1:])
+
+    type_name = doc(".crumbs a").text().split()[:2][-1]
     return {
         "title": title,
         "author": author,
@@ -110,7 +142,9 @@ def parse_book_info(doc):
         "words": number_words,
         "update_status": status,
         "update_time": update_time,
-        "book_intro": book_intro
+        "book_intro": book_intro,
+        "book_type": type_name,
+        "book_icon": ""
     }
 
 
@@ -132,13 +166,18 @@ def spider_content(content_url, book_url="", proxy={}):
     content_headers = {**common_headers,
                        "Referer": book_url, "Cache-Control": "max-age=0"}
     try:
-        content_response = requests.get(content_url, headers=content_headers, proxies=proxy)
+        content_response = requests.get(content_url, headers=content_headers, proxies=proxy,
+                                        timeout=8)
     except requests.RequestException as e:
-        return (None, None)
-    content_doc = pq(content_response.content)
+        return None, None
+    return spider_parse_content(book_url, content_url, content_response.content)
+
+
+def spider_parse_content(book_url, content_url, content_html):
+    content_doc = pq(content_html)
     content_title = content_doc(".article h1").text()
     content = content_doc(".article #BookText").text()
-    return (content_title, content)
+    return content_title, content
 
 
 # 设置重试次数
@@ -161,7 +200,8 @@ def check_args():
         * 当cmd==detail，必传参数为图书目录页的url 
             ```json
             {
-                "book_url": "http://www.xxx.com/xxxx"
+                "book_url": "http://www.xxx.com/xxxx",
+                "proxy" : { "https": "133.2.2.2:8000" }
             }
             ```
         * 当cmd==content，必传参数为章节页面完整的content_url，注意这里统一用的list
@@ -170,7 +210,8 @@ def check_args():
                 {
                     "content_url": [
                         "http://www.book.com/123/1.html"
-                    ]
+                    ],
+                    "proxy" : { "https": "133.2.2.2:8000" }
                 }
                 ```
             * 支持多个url，可选参数加上可选的book_url,这个有些爬虫用来作为refer,interval为-1时随机间隔，单位ms（默认无间隔0）
@@ -193,10 +234,11 @@ def check_args():
             "author": 作者,
             "last_chapter_info": 最新更新章节的信息,
             "words": 小说字数,
-            "update_status": 状态（连载中）,
-            "update_time": 最近更新事件,
-            "book_intro",小说介绍, 
-            "book_icon",小说图标
+            "update_status": 状态（0 连载中 1 完毕）,
+            "update_time": 最近更新时间,（字符串即可）
+            "book_intro": 小说介绍, 
+            "book_icon": 小说图标url地址
+            "book_type": 小说类型
         }
         ```
 
@@ -220,7 +262,7 @@ def check_args():
     parser = argparse.ArgumentParser(
         description=desc, formatter_class=RawTextHelpFormatter)
     parser.add_argument('cmd', help="""命令：可选包括detail或者content""", choices=[
-                        "detail", "content", "test"])
+        "detail", "content", "test"])
     parser.add_argument('json_arg', help="""命令参数,是一个json""")
 
     args = parser.parse_args()
@@ -245,7 +287,7 @@ def main():
     # 输出两个部分
     (cmd, cmd_arg) = check_args()
     if cmd == "detail":
-        eprint("spider:"+cmd + " " + str(cmd_arg))
+        eprint("spider:" + cmd + " " + str(cmd_arg))
         proxy = cmd_arg.get("proxy", {})
         res = spider_book_detail(cmd_arg['book_url'], proxy)
         print(json.dumps(res, ensure_ascii=False))
@@ -255,13 +297,13 @@ def main():
         interval = int(cmd_arg.get("interval", "0"))
         proxy = cmd_arg.get("proxy", {})
 
-        eprint("spider:"+cmd + " " + str(cmd_arg), book_url,
-            cmd_arg['content_url'], "间隔:", interval)
+        eprint("spider:" + cmd + " " + str(cmd_arg), book_url,
+               cmd_arg['content_url'], "间隔:", interval, "proxy", proxy)
         res = dict({"contents": []})
 
         for i, url in enumerate(cmd_arg['content_url']):
             eprint("spider:", time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
-                "开始爬第", i, "个：", url)
+                   "开始爬第", i, "个：", url)
             t, c = spider_content(url, book_url, proxy)
             if t is not None:
                 res["contents"].append({
@@ -275,10 +317,10 @@ def main():
             if interval == -1:
                 if c is None:
                     c = ""
-                sleep_time = abs(max(300, len(c))/30*numpy.random.normal())
-            if i != (len(cmd_arg['content_url'])-1) and sleep_time > 0:
+                sleep_time = abs(max(300, len(c)) / 30 * numpy.random.normal())
+            if i != (len(cmd_arg['content_url']) - 1) and sleep_time > 0:
                 eprint("spider:", "爬到：", t)
-                eprint("spider:", "伪装睡眠：", sleep_time, "秒",)
+                eprint("spider:", "伪装睡眠：", sleep_time, "秒", )
                 time.sleep(sleep_time)
 
         print(json.dumps(res, ensure_ascii=False))
