@@ -8,6 +8,7 @@ import asyncio
 import requests
 from requests_futures.sessions import FuturesSession
 from itertools import islice
+import logging
 
 session = FuturesSession(max_workers=50)
 
@@ -23,7 +24,7 @@ def load_proxy_file():
     proxy_text = requests.get(
         "https://raw.githubusercontent.com/fate0/proxylist/master/proxy.list", proxies=p).text
     proxy_list = [json.loads(line) for line in proxy_text.splitlines()]
-    print("get proxy:", len(proxy_list))
+    logging.debug("get proxy list len :{}".format(len(proxy_list)))
     return proxy_list
 
 
@@ -44,7 +45,7 @@ async def filter_proxy(proxy):
         # 这块是concurrent.futures.Future转成asyncio.Future,await 求值有抛出可能异常因为concurrent的result()
         resp = await asyncio.wrap_future(f)
     except Exception as e:
-        print("request error", e)
+        # logging.exception("request error")
         return None
     if resp.ok:
         return convert_to_request_proxy(proxy)
@@ -60,7 +61,7 @@ async def get_proxy_pool(num):
     res = []
     level = 0
     while num > 0 and level < 3:
-        print("parallel search:", num)
+        logging.info("proxy search parallel search:{}".format(num))
         check_list = list(islice(proxy_list_iter, 0, num))
         done, pending = await asyncio.wait(map(filter_proxy, check_list))
         pl = [t for t in [x.result() for x in done] if t is not None]
