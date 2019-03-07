@@ -82,7 +82,7 @@ def configure_root_logger(log_path):
         },
         'loggers': {
             '': {  # root logger 等价 logging.getLogger()
-                'handlers': ['console', 'file'],
+                'handlers': ['file'],
                 'level': 'DEBUG',
                 'propagate': True
             },
