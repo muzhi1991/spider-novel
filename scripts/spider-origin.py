@@ -107,6 +107,14 @@ def spider_parse_detail(book_url, html_content):
     return infos
 
 
+def spider_parse_detail_m(book_url, html_content):
+    doc = pq(html_content)
+    update_status = 0
+    if "已完结" in doc(".sstats .fr")("i").text():
+        update_status = 1
+    return {"update_status": update_status}
+
+
 def parse_icon_url(book_url):
     # book_url:http://www.aoyuge.com/34/34380/index.html
     if not book_url.startswith("http"):
