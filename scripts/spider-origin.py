@@ -93,7 +93,7 @@ Returns:
 
 def spider_book_detail(book_url, proxy={}):
     book_headers = {**common_headers, 'If-None-Match': str(int(time.time()))}
-    response = requests.get(book_url, headers=book_headers, proxies=proxy, timeout=30)
+    response = requests.get(book_url, headers=book_headers, proxies=proxy, timeout=15)
     return spider_parse_detail(book_url, response.content)
 
 
@@ -175,7 +175,7 @@ def spider_content(content_url, book_url="", proxy={}):
                        "Referer": book_url, "Cache-Control": "max-age=0"}
     try:
         content_response = requests.get(content_url, headers=content_headers, proxies=proxy,
-                                        timeout=8)
+                                        timeout=10)
     except requests.RequestException as e:
         return None, None
     return spider_parse_content(book_url, content_url, content_response.content)

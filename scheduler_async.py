@@ -8,6 +8,7 @@ import spider_common_info
 
 import proxy_list_async
 from status_monitor import StatusMonitor
+from bookstore_catalog_manager import BookCatalogManager
 import uuid
 
 import time
@@ -36,7 +37,7 @@ __GLOBAL_EXECUTOR__ = ThreadPoolExecutor(max_workers=50)
 __GLOBAL_FUTURE_REQUEST_SESSION__ = FuturesSession(executor=__GLOBAL_EXECUTOR__)
 
 ## 如果队列里面爬的任务太对，把爬章节的内容放队列后面，控制长度
-__MAX_DETAIL_WAIT_QUEUE_SIZE__ = 100000
+__MAX_DETAIL_WAIT_QUEUE_SIZE__ = 30000
 
 # 证书位置
 __BASE_PATH__ = os.path.dirname(os.path.realpath(__file__))
@@ -55,7 +56,7 @@ sys.path.insert(0, __SCRIPT_DIR_PATH__)
 # 配置日志输出
 logging_config.configure_root_logger(
     os.path.join(__BASE_PATH__, "logs", os.path.splitext(os.path.basename(__file__))[0], "app.log"))
-logging.getLogger().setLevel(logging.CRITICAL)
+# logging.getLogger().disabled = True
 logger = logging.getLogger("online")
 # logger.disabled = True
 
@@ -65,18 +66,17 @@ __spider_list__ = {
 
 query_list_path = os.path.join(__BOOK_STORE_PATH__, "booklist.json")
 
-__query_list__ = json.load(open(query_list_path))[:2]
-__query_list__ = [item for sublist in __query_list__ for item in sublist][:1]
+__query_list__ = [
+    {"book_url": "http://www.aoyuge.com/16/16977/index.html",
+     "spider_name": "spider-origin", "name": "超级越界强者"},
+    {"book_url": "http://www.aoyuge.com/34/34380/index.html",
+     "spider_name": "spider-origin", "name": "女帝家的小白脸"},
+    {"book_url": "http://www.aoyuge.com/15/15779/index.html",
+     "spider_name": "spider-origin", "name": "万古神帝"}
+]
 
-
-# [
-#     {"book_url": "http://www.aoyuge.com/16/16977/index.html",
-#      "spider_name": "spider-origin", "name": "超级越界强者"},
-#     # {"book_url": "http://www.aoyuge.com/34/34380/index.html",
-#     #  "spider_name": "spider-origin", "name": "女帝家的小白脸"},
-#     # {"book_url": "http://www.aoyuge.com/15/15779/index.html",
-#     #  "spider_name": "spider-origin", "name": "万古神帝"}
-# ]
+__query_list__ = json.load(open(query_list_path))
+__query_list__ = [item for sublist in __query_list__ for item in sublist]
 
 
 class MyException(Exception):
@@ -133,12 +133,18 @@ class SpiderDetailTask(SpiderTask):
         spider_total_cnt = 1
         spider_success_cnt = 0
         new_tasks = []
-        logging.debug(
+        logger.debug(
             "consumer {} - task {}: SpiderDetailTask -- Start: args={} ".format(self.consumer_id,
                                                                                 self.id,
                                                                                 (book_url,
                                                                                  spider_name,
                                                                                  proxy)))
+
+        if BookCatalogManager.is_status_done(book_url):
+            logger.info("consumer {} - task {}:".format(self.consumer_id, self.id)
+                        + " SpiderDetailTask --book_url:{} 已经完结且爬完成"
+                        .format(book_url))
+            return 1, new_tasks
 
         # 数据爬取
         book_info = None
@@ -150,13 +156,13 @@ class SpiderDetailTask(SpiderTask):
             book_info = await self.spider_detail(session, book_url, spider_name, proxy)
             spider_success_cnt += 1
         except Exception as e:
-            logging.exception(
+            logger.exception(
                 "consumer {} - task {}: SpiderDetailTask -- 爬图书详情错误！！！！".format(self.consumer_id,
                                                                                 self.id))
 
         if book_info is None:
             # 代理问题切换爬虫重试
-            logging.warning(
+            logger.warning(
                 "consumer {} - task {}: Detail爬虫任务异常，换proxy重试，重新放入queue".format(self.consumer_id,
                                                                                 self.id))
             spider_success_ratio = spider_success_cnt * 1.0 / spider_total_cnt  # spider的成功率是0
@@ -168,7 +174,7 @@ class SpiderDetailTask(SpiderTask):
             self.add_to_book_manifest_detail_file(book_info)
         except Exception as e:
 
-            logging.exception(
+            logger.exception(
                 "consumer {} - task {}: SpiderDetailTask -- 添加书籍相关catalog/manifest文件错误，直接退出！！！".format(
                     self.consumer_id,
                     self.id))
@@ -182,7 +188,7 @@ class SpiderDetailTask(SpiderTask):
             chapter_list = self.get_need_spider_chapter(book_dir_path,
                                                         book_info["chapter_list"])
         except Exception as e:
-            logging.exception(
+            logger.exception(
                 "consumer {} - task {}: SpiderDetailTask -- get_need_spider_chapter捕获到数据查询问题，直接退出！！！".format(
                     self.consumer_id,
                     self.id))
@@ -190,7 +196,7 @@ class SpiderDetailTask(SpiderTask):
 
         # # 非代理问题重试
         # if chapter_list is None or book_dir_path is None:
-        #     logging.warning(
+        #     logger.warning(
         #         "consumer {} - task {}: get_need_spider_chapter捕获到数据查询问题，直接重新放入queue".format(
         #             self.consumer_id,
         #             self.id))
@@ -201,24 +207,20 @@ class SpiderDetailTask(SpiderTask):
             # 是否完结，下载完了大done标记
             if await SpiderDetailTask.check_status_done(session, spider_name, book_info, proxy):
                 self.add_done_flag_to_local_book(book_dir_path)
+                BookCatalogManager.add_done_to_catalog(book_url)
             book_title = book_info['title']
-            book_chapter_len = len(book_info['chapter_list'])
-            logging.info("consumer {} - task {}:".format(self.consumer_id, self.id)
-                         + " SpiderDetailTask --所有没有新章节要爬取 book_dir_path:{} title:{},包含章节:{}章"
-                         .format(book_dir_path, book_title, book_chapter_len))
-            logger.info("consumer {} - task {}:".format(self.consumer_id, self.id)
-                        + " SpiderDetailTask --所有没有新章节要爬取 book_dir_path:{} title:{},包含章节:{}章"
-                        .format(book_dir_path, book_title, book_chapter_len))
-        else:
             all_book_chapter_len = len(book_info['chapter_list'])
-            logging.info("consumer {} - task {}:".format(self.consumer_id, self.id)
-                         + " SpiderDetailTask --有新章节要爬取 book_dir_path:{} 需要爬{}章"
-                         .format(book_dir_path, len(chapter_list)))
+            logger.info("consumer {} - task {}:".format(self.consumer_id, self.id)
+                        + " SpiderDetailTask --没有新章节要爬取 book_dir_path:{} title:{},包含章节:{}章"
+                        .format(book_dir_path, book_title, all_book_chapter_len))
+        else:
+            book_title = book_info['title']
+            all_book_chapter_len = len(book_info['chapter_list'])
             logger.info("consumer {} - task {}:".format(self.consumer_id, self.id)
                         + " SpiderDetailTask --有新章节要爬取 book_dir_path:{} 需要爬{}章"
                         .format(book_dir_path, len(chapter_list)))
             StatusMonitor.set_monitor(book_dir_path, all_book_chapter_len, "章",
-                                      all_book_chapter_len - len(chapter_list))
+                                      all_book_chapter_len - len(chapter_list), desc=book_title)
 
         # 正常逻辑，产生所有问题
         spider_success_ratio = spider_success_cnt * 1.0 / spider_total_cnt
@@ -240,7 +242,7 @@ class SpiderDetailTask(SpiderTask):
             try:
                 resp = await self.request_url_async(session, book_url, proxy)
             except Exception as e:
-                # logging.error(
+                # logger.error(
                 #     "consumer {} - task {}:网络请求异常 url:{}".format(self.consumer_id, self.id,
                 #                                                  book_url))
                 try_num = try_num + 1
@@ -251,7 +253,7 @@ class SpiderDetailTask(SpiderTask):
                 error_info = "consumer {} - task {}:网络请求异常 url:{} status_code:{} content:{}".format(
                     self.consumer_id, self.id, book_url, resp.status_code,
                     resp.content.decode("utf8"))
-                # logging.error(error_info)
+                # logger.error(error_info)
                 try_num = try_num + 1
                 last_exception = Exception(error_info)
                 continue
@@ -259,7 +261,7 @@ class SpiderDetailTask(SpiderTask):
             try:
                 infos = __spider_list__[spider_name].spider_parse_detail(book_url, resp.content)
             except Exception as e:
-                # logging.error(
+                # logger.error(
                 #     "consumer {} - task {}:解析网页异常 content:{}".format(self.consumer_id, self.id,
                 #                                                      resp.content.decode("utf8")))
                 try_num = try_num + 1
@@ -276,21 +278,21 @@ class SpiderDetailTask(SpiderTask):
         try_num = 1
         while try_num <= 3 and infos is None:
             try:
-                logging.debug(
+                logger.debug(
                     "consumer {} - task {} - thread {}: spider_one_detail -- "
                     "RUN: try_num(相同代理):{} 开始爬：book_url:{},spider_name:{},proxy:{}"
                         .format(consumer_id, task_id,
                                 threading.get_ident(), try_num, book_url, spider_name, proxy))
                 infos = __spider_list__[spider_name].spider_book_detail(book_url, proxy)
                 # infos = SpiderDetailTask.spider_one_detail_cmd(book_url, spider_name, proxy)
-                logging.debug(
+                logger.debug(
                     "consumer {} - task {} - thread {}: spider_one_detail --"
                     " Result: {} 查询：{} 成功 {}"
                         .format(consumer_id, task_id,
                                 threading.get_ident(), spider_name, book_url, infos))
             except Exception as e:
                 try_num = try_num + 1
-                logging.exception(
+                logger.exception(
                     "consumer {} - task {} - thread {} spider_one_detail --"
                     " Error:{}".format(consumer_id, task_id, threading.get_ident(), e))
         if infos is None:
@@ -375,7 +377,7 @@ class SpiderDetailTask(SpiderTask):
                 (chapter_id, chapter_title_hash_str) = SpiderDetailTask.parse_chapter_file_name(
                     chapter_file_name)
                 # except Exception as e:
-                #     logging.exception(e)
+                #     logger.exception(e)
                 if chapter_id is None or chapter_title_hash_str is None:
                     # os.remove(os.path.join(book_dir_path, chapter_file_name))
                     continue
@@ -392,12 +394,12 @@ class SpiderDetailTask(SpiderTask):
                 if chapter_id in chapter_index_name_dict and \
                         SpiderDetailTask.convert_chapter_title_to_safe_str(
                             chapter_index_name_dict[chapter_id][0]) != chapter_title_hash_str:
-                    logging.warning("本地图书 {} 的特殊情况：图书目录顺序发生了变换，删了重新下载".format(entry.name))
+                    logger.warning("本地图书 {} 的特殊情况：图书目录顺序发生了变换，删了重新下载".format(entry.name))
                     os.remove(os.path.join(book_dir_path, chapter_file_name))
                     continue
                 # 处理本地图书的特殊情况：本地有爬虫没有（本地内容更新）--先不处理，免得删错了
                 if chapter_id not in chapter_index_name_dict:  # 本地的index不在最新的里面？？什么情况
-                    logging.warning("本地图书 {} 的特殊情况：本地有爬虫没有（本地内容更新）--先不处理，免得删错了".format(entry.name))
+                    logger.warning("本地图书 {} 的特殊情况：本地有爬虫没有（本地内容更新）--先不处理，免得删错了".format(entry.name))
                     continue
 
         for chapter_id, chapter in chapter_index_name_dict.items():
@@ -412,7 +414,7 @@ class SpiderDetailTask(SpiderTask):
         try:
             Path(os.path.join(book_dir_path, "__DONE__")).touch()
         except Exception as e:
-            logging.warning(
+            logger.warning(
                 "touch {} file failed:{}".format(os.path.join(book_dir_path, "__DONE__"), e))
 
     @staticmethod
@@ -469,7 +471,7 @@ class SpiderDetailTask(SpiderTask):
                 chapter_file_name = self.generate_chapter_file_name(chapter_id, chapter_title)
                 arg_chunks.append(
                     (book_dir_path, spider_name, chapter_id, chapter_title, content_url, book_url))
-            logging.debug("consumer {} - task {}:generate_chunk_content_task_list:chunks--".format(
+            logger.debug("consumer {} - task {}:generate_chunk_content_task_list:chunks--".format(
                 self.consumer_id, self.id, arg_chunks))
             chunk_tasks.append(SpiderContentTask(self.loop, self.executor, arg_chunks))
         return chunk_tasks
@@ -481,20 +483,23 @@ class SpiderDetailTask(SpiderTask):
         :param book_info:
         :return:
         """
+
         # todo 加载内存判断？？
-        catalog_path = os.path.join(__BOOK_STORE_PATH__, "__CATALOG__")
+
         book_dir_path = SpiderDetailTask.get_book_dir_path(book_info)
-        rel_book_path = os.path.relpath(book_dir_path, __BOOK_STORE_PATH__)
-        logging.debug(catalog_path)
-        os.path.exists(catalog_path) or Path(catalog_path).touch()
-        # Opens a file for both reading and writing.
-        # The file pointer will be at the beginning of the file.
-        with open(catalog_path, "r+", encoding='utf8') as file:
-            for line in file:
-                if line.startswith(rel_book_path):
-                    break
-            else:  # not found, we are at the eof
-                file.write(rel_book_path + "\n")  # append missing data
+        BookCatalogManager.add_book_to_catalog(book_dir_path)
+        # catalog_path = os.path.join(__BOOK_STORE_PATH__, "__CATALOG__")
+        # rel_book_path = os.path.relpath(book_dir_path, __BOOK_STORE_PATH__)
+        # logger.debug(catalog_path)
+        # os.path.exists(catalog_path) or Path(catalog_path).touch()
+        # # Opens a file for both reading and writing.
+        # # The file pointer will be at the beginning of the file.
+        # with open(catalog_path, "r+", encoding='utf8') as file:
+        #     for line in file:
+        #         if line.startswith(rel_book_path):
+        #             break
+        #     else:  # not found, we are at the eof
+        #         file.write(rel_book_path + "\n")  # append missing data
 
     @staticmethod
     def add_to_book_manifest_detail_file(book_info):
@@ -536,7 +541,7 @@ class SpiderDetailTask(SpiderTask):
                 "update_status"] == 1:
                 return True
         except Exception as e:
-            logging.exception("检测图书状态错误")
+            logger.exception("检测图书状态错误")
             pass
         return False
 
@@ -558,12 +563,12 @@ class SpiderContentTask(SpiderTask):
         spider_success_cnt = 0
         failed_arg_chunks = []
 
-        logging.debug("consumer {} - task {}: SpiderContentTask -- Start: chunk_args is {}"
-                      .format(self.consumer_id, self.id, (arg_chunks, proxy)))
+        logger.debug("consumer {} - task {}: SpiderContentTask -- Start: chunk_args is {}"
+                     .format(self.consumer_id, self.id, (arg_chunks, proxy)))
         for i, task_arg in enumerate(arg_chunks):
             (book_dir_path, spider_name, chapter_id, chapter_title, content_url, book_url, proxy) = \
                 (*task_arg, proxy)
-            logging.debug(
+            logger.debug(
                 "consumer {} - task {}: SpiderContentTask -- Start {}/{} -- "
                 "arg: book_dir_path:{}, spider_name:{}, chapter_id:{}, chapter_title:{},"
                 "content_url:{}, book_url:{}, proxy:{}".format(self.consumer_id, self.id,
@@ -589,12 +594,12 @@ class SpiderContentTask(SpiderTask):
                                                    proxy)
                 spider_success_cnt += 1
             except Exception as e:
-                logging.exception(
+                logger.exception(
                     "consumer {} - task {}: SpiderContentTask -- Error:".format(self.consumer_id,
                                                                                 self.id, e))
             if t is None or c is None:
                 # 代理问题切换爬虫重试
-                logging.warning("consumer {} - task {}: Content爬虫执行错误，换proxy重试，重新放入queue".format(
+                logger.warning("consumer {} - task {}: Content爬虫执行错误，换proxy重试，重新放入queue".format(
                     self.consumer_id, self.id))
                 failed_arg_chunks.append(task_arg)
             else:
@@ -606,7 +611,7 @@ class SpiderContentTask(SpiderTask):
                                                                         chapter_title,
                                                                         c) and await self.append_to_book_manifest_downloaded_file(
                         book_dir_path, chapter_id)
-                    logging.info(
+                    logger.info(
                         "consumer {} - task {}:爬book路径:{} chapter:{} 完成".format(
                             self.consumer_id,
                             self.id,
@@ -615,21 +620,21 @@ class SpiderContentTask(SpiderTask):
                     StatusMonitor.update_monitor(book_dir_path)
                     # post_content_result = await self.postContentIntoDb(book_id, chapter_id, t, c)
                 except Exception as e:
-                    logging.exception(
+                    logger.exception(
                         "consumer {} - task {}: SpiderContentTask -- post_to_local_file错误 直接诶退出！！ Error:{}".format(
                             self.consumer_id,
                             self.id, e))
                     raise e
                 # if not post_content_result:
                 #     # 不是代理问题，直接重试
-                #     logging.warning("consumer {} - task {}:"
+                #     logger.warning("consumer {} - task {}:"
                 #                     "postContentIntoDb数据库入库错误，直接重新放入queue".format(
                 #         self.consumer_id, self.id))
                 #     failed_arg_chunks.append(task_arg)
 
             # todo 随机睡眠，在生成task时分配这个值？还是在这直接诶搞
             sleep_time = random.randint(2, 6)
-            logging.info(
+            logger.info(
                 "consumer {} - task {}:睡眠了{}s".format(self.consumer_id, self.id, sleep_time))
             await asyncio.sleep(sleep_time)
 
@@ -659,7 +664,7 @@ class SpiderContentTask(SpiderTask):
                                                     {"Referer": book_url,
                                                      "Cache-Control": "max-age=0"})
             except Exception as e:
-                # logging.error(
+                # logger.error(
                 #     "consumer {} - task {} :网络请求异常 url:{}".format(self.consumer_id, self.id,
                 #                                                   content_url))
                 try_num = try_num + 1
@@ -670,7 +675,7 @@ class SpiderContentTask(SpiderTask):
                 error_info = "consumer {} - task {}:网络请求异常 url:{} status_code:{} content:{}".format(
                     self.consumer_id, self.id, content_url, resp.status_code,
                     resp.content.decode("utf8"))
-                # logging.error(error_info)
+                # logger.error(error_info)
                 try_num = try_num + 1
                 last_exception = Exception(error_info)
                 continue
@@ -679,7 +684,7 @@ class SpiderContentTask(SpiderTask):
                 t, c = __spider_list__[spider_name].spider_parse_content(book_url, content_url,
                                                                          resp.content)
             except Exception as e:
-                # logging.error(
+                # logger.error(
                 #     "consumer {} - task {}:解析网页异常 content:{}".format(self.consumer_id, self.id,
                 #                                                      resp.content.decode("utf8")))
                 try_num = try_num + 1
@@ -688,10 +693,10 @@ class SpiderContentTask(SpiderTask):
 
         if t is None or c is None:
             raise last_exception
-        logging.debug(
+        logger.debug(
             "consumer {} - task {} : start_spider_content -- "
             "Result: 爬到标题：{}".format(self.consumer_id, self.id, t))
-        logging.debug(
+        logger.debug(
             "consumer {} - task {} : start_spider_content -- "
             "Result: 爬到内容长度:{},内容预览：{} ......".format(
                 self.consumer_id, self.id, len(c), c[:25]))
@@ -707,7 +712,7 @@ class SpiderContentTask(SpiderTask):
         try_num = 1
         while try_num <= 2 and (t is None or c is None):
             try:
-                logging.debug(
+                logger.debug(
                     "consumer {} - task {} - thread {}: spider_one_content -- RUN - try_num(相同代理):"
                     .format(consumer_id, task_id, threading.get_ident(), try_num)
                     +
@@ -718,16 +723,16 @@ class SpiderContentTask(SpiderTask):
                 #                                                 proxy)
                 # 入库逻辑
                 if t is not None and c is not None:
-                    logging.debug(
+                    logger.debug(
                         "consumer {} - task {} - thread {}: start_spider_content -- "
                         "Result: 爬到标题：{}".format(consumer_id, task_id, threading.get_ident(), t))
-                    logging.debug(
+                    logger.debug(
                         "consumer {} - task {} - thread {}: start_spider_content -- "
                         "Result: 爬到内容长度:{},内容预览：{} ......".format(
                             consumer_id, task_id, threading.get_ident(), len(c), c[:25]))
             except Exception as e:
                 try_num = try_num + 1
-                logging.exception(
+                logger.exception(
                     "consumer {} - task {} - thread {} start_spider_content -- Error:{}".format(
                         consumer_id, task_id,
                         threading.get_ident(), e))
@@ -809,13 +814,13 @@ class SpiderContentTask(SpiderTask):
 
 
 async def consumer(consumer_id, task_q, proxy):
-    logging.debug('consumer {}: waiting for task,using proxy - {}'.format(consumer_id, proxy))
+    logger.debug('consumer {}: waiting for task,using proxy - {}'.format(consumer_id, proxy))
     total_task = 0
     proxy_success_total_ration = 0
     total_task_unique = 0  # 不包括重试任务
     error_task_unique = 0  # 不包括重试任务
     while True:
-        logging.debug('consumer {}: waiting for task'.format(consumer_id))
+        logger.debug('consumer {}: waiting for task'.format(consumer_id))
         task = None
         try:
             task = await task_q.get()
@@ -823,7 +828,7 @@ async def consumer(consumer_id, task_q, proxy):
             # 退出点3
             raise MyException("consumer {}:正常退出", e, error_task_unique, total_task_unique)
 
-        logging.debug('consumer {}: has task {}'.format(consumer_id, task.id))
+        logger.debug('consumer {}: has task {}'.format(consumer_id, task.id))
         # 在这个程序中 None 是个特殊的值，表示终止信号(这里没有用)
         if task is None:
             task_q.task_done()
@@ -832,7 +837,7 @@ async def consumer(consumer_id, task_q, proxy):
             # 控制长度
             if isinstance(task,
                           SpiderDetailTask) and task_q.qsize() > __MAX_DETAIL_WAIT_QUEUE_SIZE__:
-                logging.warning(
+                logger.warning(
                     'consumer {}: 队列太长，暂停SpiderDetailTask{} reshuffle to tail of queue..... '.format(
                         consumer_id, task.id))
                 task_q.task_done()
@@ -846,18 +851,18 @@ async def consumer(consumer_id, task_q, proxy):
                     total_task_unique += 1
                 proxy_success_ration, new_need_tasks = await task.start(proxy)
                 proxy_success_total_ration += proxy_success_ration
-                logging.debug(
+                logger.debug(
                     "consumer {}: result -- 本次任务proxy请求成功率{} 返回新任务数量{}"
                         .format(consumer_id, proxy_success_ration, len(new_need_tasks)))
                 new_put_cnt = 0
                 for new_task in new_need_tasks:
                     if new_task.try_cnt == 0:
-                        logging.debug(
+                        logger.debug(
                             "consumer {}: result -- 添加新任务 {} try_cnt {}"
                                 .format(consumer_id, new_task.id, new_task.try_cnt))
                     else:
                         # 重试任务复用了相同的id！！！
-                        logging.debug(
+                        logger.debug(
                             "consumer {}: result -- 试图添加重试任务 {} try_cnt {}"
                                 .format(consumer_id, new_task.id, new_task.try_cnt))
                     if new_task.try_cnt <= 3:
@@ -866,11 +871,11 @@ async def consumer(consumer_id, task_q, proxy):
                         await task_q.put(new_task)  # 相当于递归生成新的任务
                     else:
                         error_task_unique += 1
-                        logging.critical(
+                        logger.critical(
                             "consumer {}: ERROR result -- task:{} 该任务**完全失败**，停止执行，具体信息：{}"
                                 .format(consumer_id, new_task.id, new_task))
 
-                logging.debug(
+                logger.debug(
                     "consumer {}: result -- 新加入队列任务/期望加入任务 {}/{}"
                         .format(consumer_id, new_put_cnt, len(new_need_tasks)))
 
@@ -881,8 +886,8 @@ async def consumer(consumer_id, task_q, proxy):
                 raise MyException("consumer {}:!!!!!!!未预测到的Exception:", e, error_task_unique,
                                   total_task_unique)
 
-            logging.debug("consumer {}: result -- {}代理平均成功率{}"
-                          .format(consumer_id, proxy, proxy_success_total_ration / total_task))
+            logger.debug("consumer {}: result -- {}代理平均成功率{}"
+                         .format(consumer_id, proxy, proxy_success_total_ration / total_task))
 
             # todo 任务先休息1s 注意这里的顺序，或者捕获sleep的异常，因为可能出现cannel异常，我这里依赖异常返回值了
             await asyncio.sleep(1)
@@ -892,7 +897,7 @@ async def consumer(consumer_id, task_q, proxy):
                 # 退出点2
                 raise ProxyAvailableException("proxy error", error_task_unique, total_task_unique)
 
-    logging.debug('consumer {}: ending'.format(consumer_id))
+    logger.debug('consumer {}: ending'.format(consumer_id))
 
 
 async def producer(task_q, query_list, loop, executor):
@@ -910,15 +915,14 @@ async def producer(task_q, query_list, loop, executor):
                 query_item = query_list[i]
                 book_url = query_item['book_url']
                 spider_name = "spider-origin"  # query_item['spider_name']
-                logging.debug("producer: put detail task book_url: {}".format(book_url))
-                await task_q.put(SpiderDetailTask(loop, executor, book_url, spider_name))
-                await asyncio.sleep(3)
+                logger.debug("producer: put detail task book_url: {}".format(book_url))
+                task_q.put_nowait(SpiderDetailTask(loop, executor, book_url, spider_name))
             start = end
-        await asyncio.sleep(10)
+        await asyncio.sleep(1)
 
 
-async def main(loop, query_list):
-    proxy_list = await proxy_list_async.get_proxy_pool(3)
+async def main(loop, query_list, parallel=100):
+    proxy_list = await proxy_list_async.get_proxy_pool(parallel)
     # print(proxy_list)
     num_proxy = len(proxy_list)
     # 创建指定大小的队列，这样的话生产者将会阻塞
@@ -930,6 +934,7 @@ async def main(loop, query_list):
     total_task_unique = 0  # 不包括重试任务
     error_task_unique = 0  # 不包括重试任务
     StatusMonitor.set_monitor("book", len(query_list), "本")
+    BookCatalogManager.load_catalog_info(__BOOK_STORE_PATH__)
     # for query_item in query_list:
     #     book_url = query_item['book_url']
     #     spider_name = "spider-origin"  # query_item['spider_name']
@@ -942,83 +947,112 @@ async def main(loop, query_list):
         task = loop.create_task(consumer(i, task_q, proxy_list[i]))
         consumers_tasks[task] = i
 
-    while task_q.empty():
-        await asyncio.sleep(0.1)
+    while task_q.empty() and task_q._unfinished_tasks == 0:
+        await asyncio.sleep(1)
 
     # 等待所有 coroutines 都完成
     while not task_q.empty() or task_q._unfinished_tasks != 0:
         done, pending = await asyncio.wait(consumers_tasks.keys(), return_when=FIRST_COMPLETED,
                                            timeout=1)
-        logging.debug(
+        logger.debug(
             "main loop: waiting status : done-{} pending-{} ".format(len(done), len(pending)))
         # 不论什么原因返回，全部启动
         if len(done) != 0:
-            logging.debug(
+            logger.debug(
                 "main loop: {}个custom退出, check need to restart consumer using new proxy ".format(
                     len(done)))
-            logging.debug("!!!!来拉")
+            logger.debug("!!!!来拉")
             for done_task in done:
                 consumer_id = consumers_tasks.get(done_task, -1)
                 try:
                     res = done_task.result()
-                    logging.warning("main loop: customer {}正常退出，未重启，信息：{}"
-                                    .format(consumer_id, res))
+                    logger.warning("main loop: customer {}正常退出，未重启，信息：{}"
+                                   .format(consumer_id, res))
                 except ProxyAvailableException as e:
-                    logging.debug("!!!!state1:{}".format(e.args))
+                    logger.debug("!!!!state1:{}".format(e.args))
                     (error_cnt, total_cnt) = e.args
                     error_task_unique += error_cnt
                     total_task_unique += total_cnt
                     new_proxy = await proxy_list_async.get_proxy_avaliable()
                     new_consumer = consumer(consumer_id, task_q, new_proxy)
                     new_consumer_task = loop.create_task(new_consumer)
-                    logging.warning(
+                    logger.warning(
                         "main loop: 切换代理 restart consumer {} using new proxy {} "
                             .format(consumer_id, new_proxy))
                     consumers_tasks.pop(done_task, None)  # 退出
                     consumers_tasks[new_consumer_task] = consumer_id  # 重新加入
                 except MyException as e:
-                    logging.debug("!!!!state2:{}".format(e.args))
+                    logger.debug("!!!!state2:{}".format(e.args))
                     (error_cnt, total_cnt) = e.args
                     error_task_unique += error_cnt
                     total_task_unique += total_cnt
                     # traceback.print_exc()
                     consumer_id = consumers_tasks.get(done_task, -1)
                     consumers_tasks.pop(done_task, None)  # 退出
-                    # logging.exception(
+                    # logger.exception(
                     #     "main loop: !!!!!!!未预测到的Exception退出customer{}:".format(consumer_id))
-                    logging.critical(
+                    logger.critical(
                         "main loop: !!!!!!!未预测到的Exception退出customer{}:".format(consumer_id))
 
-    logging.info("main loop: queue is empty, exiting waiting queue")
+    logger.info("main loop: queue is empty, exiting waiting queue")
 
     # Wait until the queue is fully processed.
     started_at = time.monotonic()
     await task_q.join()
     total_slept_for = time.monotonic() - started_at
-    logging.info("main loop: total ruing time {}".format(total_slept_for))
+    logger.info("main loop: total ruing time {}".format(total_slept_for))
     for task in consumers_tasks:
         task.cancel()
     results = await asyncio.gather(*consumers_tasks, return_exceptions=True)
     for res in results:
-        logging.debug("!!!!state3:nothere {},{}".format(type(res), res))
+        logger.debug("!!!!state3:nothere {},{}".format(type(res), res))
         if isinstance(res, MyException):
-            logging.debug("!!!!state4:{}".format(res.args))
+            logger.debug("!!!!state4:{}".format(res.args))
             (error_cnt, total_cnt) = res.args
             error_task_unique += error_cnt
             total_task_unique += total_cnt
 
-    logging.debug("main loop: final result {} ".format(results))
+    logger.debug("main loop: final result {} ".format(results))
     success_ratio = 1
     if total_task_unique > 0:
         success_ratio = (total_task_unique - error_task_unique) * 1.0 / total_task_unique
     await producer_task
-    logging.critical(
+    logger.critical(
+        "main loop: final result total task:{} error task:{} success_ratio:{}% ".format(
+            total_task_unique, error_task_unique, success_ratio * 100))
+
+    logger.critical(
         "main loop: final result total task:{} error task:{} success_ratio:{}% ".format(
             total_task_unique, error_task_unique, success_ratio * 100))
 
 
-event_loop = asyncio.get_event_loop()
-try:
-    event_loop.run_until_complete(main(event_loop, __query_list__))
-finally:
-    event_loop.close()
+def start(query_list=__query_list__, parallel=100, start=0, end=sys.maxsize, debug=False,
+          progress=True, show_info=False):
+    if debug:
+        global logger
+        logger = logging.getLogger("debug")
+    if show_info:
+        logger = logging.getLogger("info")
+    if not progress:
+        StatusMonitor.flag = False
+
+    event_loop = asyncio.get_event_loop()
+    try:
+        if event_loop.is_closed():  # 重复调用
+            event_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(event_loop)
+        event_loop.run_until_complete(main(event_loop, query_list[start:end], parallel))
+    finally:
+        event_loop.close()
+
+
+def _main():
+    event_loop = asyncio.get_event_loop()
+    try:
+        event_loop.run_until_complete(main(event_loop, __query_list__))
+    finally:
+        event_loop.close()
+
+
+if __name__ == '__main__':
+    _main()

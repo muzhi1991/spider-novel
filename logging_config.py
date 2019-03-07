@@ -17,8 +17,8 @@ def setup_for_color_console(config):
     :return:
     """
     if 'colorlog' in sys.modules and os.isatty(2):
-        format = '%(asctime)s - %(levelname)-7s - %(message)s'
-        format = '%(asctime)s - %(levelname)-7s - %(filename)s[line:%(lineno)d] - %(funcName)s() -  %(message)s'
+        format = '%(asctime)s - %(name)s - %(levelname)-7s - %(message)s'
+        format = '%(asctime)s - %(name)s - %(levelname)-7s - %(filename)s[line:%(lineno)d] - %(funcName)s() -  %(message)s'
         date_format = '%Y-%m-%d %H:%M:%S'
         cformat = '%(log_color)s' + format
         config['formatters']['colored_console'] = {'()': 'colorlog.ColoredFormatter',
@@ -55,11 +55,11 @@ def configure_root_logger(log_path):
         'version': 1,
         'formatters': {
             'simple': {
-                'format': '%(asctime)s - %(levelname)-7s - %(filename)s[line:%(lineno)d] - %(message)s',
+                'format': '%(asctime)s - %(name)s - %(levelname)-7s - %(filename)s[line:%(lineno)d] - %(message)s',
                 'datefmt': '%Y-%m-%d %H:%M:%S'
             },
             'default': {
-                'format': '%(asctime)s - %(levelname)-7s -  %(filename)s[line:%(lineno)d] - %(funcName)s() -  %(message)s',
+                'format': '%(asctime)s - %(name)s - %(levelname)-7s -  %(filename)s[line:%(lineno)d] - %(funcName)s() -  %(message)s',
                 'datefmt': '%Y-%m-%d %H:%M:%S'
             }
         },
@@ -78,17 +78,29 @@ def configure_root_logger(log_path):
                 'interval': 1,  # 间隔一个小时生成一个文件
                 'backupCount': 3,  # 保留最近3个文件
                 'filename': log_path,  # 当前天的文件就是这个名字，后面的会有时间suffix
+                "encoding": "utf8"
             }
         },
         'loggers': {
             '': {  # root logger 等价 logging.getLogger()
-                'handlers': ['file'],
-                'level': 'DEBUG',
+                'handlers': ['console', 'file'],
+                'level': 'INFO',
                 'propagate': True
+
+            },
+            'debug': {  # 这里没有用 logging.getLogger("online") 获得
+                'level': 'DEBUG',
+                'handlers': ['file', 'console'],
+                'propagate': False  # 如果为True（默认），会向上到root的logger都执行
+            },
+            'info': {  # 这里没有用 logging.getLogger("online") 获得
+                'level': 'INFO',
+                'handlers': ['file', 'console'],
+                'propagate': False  # 如果为True（默认），会向上到root的logger都执行
             },
             'online': {  # 这里没有用 logging.getLogger("online") 获得
-                'level': 'INFO',
-                'handlers': ['console', 'file'],
+                'level': 'WARN',
+                'handlers': ['file'],
                 'propagate': False  # 如果为True（默认），会向上到root的logger都执行
             }
         },
