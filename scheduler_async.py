@@ -1070,8 +1070,8 @@ def start(base_path, query_list=None, parallel=100, start=0, end=sys.maxsize,
           debug=False,
           progress=True, show_info=False, only_spider_detail=False):
     __set_global_var(base_path)
+    global logger
     if debug:
-        global logger
         logger = logging.getLogger("debug")
     if show_info:
         logger = logging.getLogger("info")
