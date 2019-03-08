@@ -103,16 +103,13 @@ class BookCatalogManager:
     @staticmethod
     def load_manifest_detail(book_path):
         path = os.path.join(book_path, "__MANIFEST_DETAIL__")
-        p = Path(path)
-        if p.exists():
-            try:
+        try:
                 with open(path, encoding='utf-8') as f:
                     return json.load(f)
-            except Exception as e:
+        except Exception as e:
                 print(e)
                 return None
-        else:
-            return None
+        return None
 
     @staticmethod
     def add_done_to_catalog(book_url):
