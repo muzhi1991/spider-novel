@@ -54,8 +54,9 @@ async def filter_proxy(proxy):
 
 
 # 预处理
-proxy_list_iter = filter(lambda p: p['anonymity'] == 'high_anonymous',
-                         random.shuffle(load_proxy_file()))
+proxy_list = load_proxy_file()
+random.shuffle(proxy_list)
+proxy_list_iter = filter(lambda p: p['anonymity'] == 'high_anonymous', proxy_list)
 
 
 async def get_proxy_pool(num):
