@@ -54,7 +54,7 @@ class StatusMonitor:
                     item["tqdm"].close()
                     item["tqdm"] = tqdm(total=item["total"], unit=item["unit"], file=sys.stdout,
                                     initial=item["val"],
-                                    position=item["pos"]).clear()
+                                    position=item["pos"])
 
                 pass
 

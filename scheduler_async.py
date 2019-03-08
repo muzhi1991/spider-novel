@@ -40,43 +40,18 @@ __GLOBAL_FUTURE_REQUEST_SESSION__ = FuturesSession(executor=__GLOBAL_EXECUTOR__)
 __MAX_DETAIL_WAIT_QUEUE_SIZE__ = 30000
 
 # 证书位置
-__BASE_PATH__ = os.path.dirname(os.path.realpath(__file__))
-__CACERT_PATH__ = __BASE_PATH__ + "/cert/cacert.pem"
-__CLIENT_CRT_PATH__ = __BASE_PATH__ + "/cert/client.crt"
-__CLIENT_KEY_PATH__ = __BASE_PATH__ + "/cert/client.key"
-
-# 本地图书目录检测&&新建
-__BOOK_STORE_PATH__ = os.path.join(__BASE_PATH__, "book_store")
-os.path.exists(__BOOK_STORE_PATH__) or os.makedirs(__BOOK_STORE_PATH__)
-
-# 导入爬虫脚本的目录
-__SCRIPT_DIR_PATH__ = __BASE_PATH__ + "/scripts"
-sys.path.insert(0, __SCRIPT_DIR_PATH__)
-
-# 配置日志输出
-logging_config.configure_root_logger(
-    os.path.join(__BASE_PATH__, "logs", os.path.splitext(os.path.basename(__file__))[0], "app.log"))
-# logging.getLogger().disabled = True
-logger = logging.getLogger("online")
-# logger.disabled = True
-
-__spider_list__ = {
-    "spider-origin": __import__("spider-origin")
-}
-
-query_list_path = os.path.join(__BOOK_STORE_PATH__, "booklist.json")
-
-__query_list__ = [
-    {"book_url": "http://www.aoyuge.com/16/16977/index.html",
-     "spider_name": "spider-origin", "name": "超级越界强者"},
-    {"book_url": "http://www.aoyuge.com/34/34380/index.html",
-     "spider_name": "spider-origin", "name": "女帝家的小白脸"},
-    {"book_url": "http://www.aoyuge.com/15/15779/index.html",
-     "spider_name": "spider-origin", "name": "万古神帝"}
-]
-
-__query_list__ = json.load(open(query_list_path))
-__query_list__ = [item for sublist in __query_list__ for item in sublist]
+__BASE_PATH__ = None
+__CACERT_PATH__ = None
+__CLIENT_CRT_PATH__ = None
+__CLIENT_KEY_PATH__ = None
+# 书库位置
+__BOOK_STORE_PATH__ = None
+# 爬虫脚本位置
+__SCRIPT_DIR_PATH__ = None
+__spider_list__ = None
+# 爬的图书目录
+__query_list_path__ = None
+__query_list__ = None
 
 
 class MyException(Exception):
@@ -1026,8 +1001,61 @@ async def main(loop, query_list, parallel=100):
             total_task_unique, error_task_unique, success_ratio * 100))
 
 
-def start(query_list=__query_list__, parallel=100, start=0, end=sys.maxsize, debug=False,
+def __set_global_var(base_dir):
+    global __BASE_PATH__
+    global __CACERT_PATH__
+    global __CLIENT_CRT_PATH__
+    global __CLIENT_KEY_PATH__
+    global __BOOK_STORE_PATH__
+    global __SCRIPT_DIR_PATH__
+
+    # 证书位置
+    __BASE_PATH__ = base_dir
+    __CACERT_PATH__ = __BASE_PATH__ + "/cert/cacert.pem"
+    __CLIENT_CRT_PATH__ = __BASE_PATH__ + "/cert/client.crt"
+    __CLIENT_KEY_PATH__ = __BASE_PATH__ + "/cert/client.key"
+
+    # 本地图书目录检测&&新建
+    __BOOK_STORE_PATH__ = os.path.join(__BASE_PATH__, "book_store")
+    os.path.exists(__BOOK_STORE_PATH__) or os.makedirs(__BOOK_STORE_PATH__)
+
+    # 导入爬虫脚本的目录
+    __SCRIPT_DIR_PATH__ = __BASE_PATH__ + "/scripts"
+    sys.path.insert(0, __SCRIPT_DIR_PATH__)
+
+    # 配置日志输出
+    logging_config.configure_root_logger(
+        os.path.join(__BASE_PATH__, "logs", os.path.splitext(os.path.basename(__file__))[0],
+                     "app.log"))
+    # logging.getLogger().disabled = True
+    global logger
+    logger = logging.getLogger("online")
+    # logger.disabled = True
+
+    global __spider_list__
+    __spider_list__ = {
+        "spider-origin": __import__("spider-origin")
+    }
+    global __query_list_path__
+    __query_list_path__ = os.path.join(__BOOK_STORE_PATH__, "booklist.json")
+    global __query_list__
+    __query_list__ = [
+        {"book_url": "http://www.aoyuge.com/16/16977/index.html",
+         "spider_name": "spider-origin", "name": "超级越界强者"},
+        {"book_url": "http://www.aoyuge.com/34/34380/index.html",
+         "spider_name": "spider-origin", "name": "女帝家的小白脸"},
+        {"book_url": "http://www.aoyuge.com/15/15779/index.html",
+         "spider_name": "spider-origin", "name": "万古神帝"}
+    ]
+
+    __query_list__ = json.load(open(__query_list_path__))
+    __query_list__ = [item for sublist in __query_list__ for item in sublist]
+
+
+def start(book_store_path, query_list=__query_list__, parallel=100, start=0, end=sys.maxsize,
+          debug=False,
           progress=True, show_info=False):
+    __set_global_var(book_store_path)
     if debug:
         global logger
         logger = logging.getLogger("debug")
@@ -1035,6 +1063,8 @@ def start(query_list=__query_list__, parallel=100, start=0, end=sys.maxsize, deb
         logger = logging.getLogger("info")
     if not progress:
         StatusMonitor.flag = False
+    else:
+        logging.getLogger().disabled = True
 
     event_loop = asyncio.get_event_loop()
     try:
@@ -1047,6 +1077,8 @@ def start(query_list=__query_list__, parallel=100, start=0, end=sys.maxsize, deb
 
 
 def _main():
+    __set_global_var(os.path.dirname(os.path.realpath(__file__)))
+    logging.getLogger().disabled = True
     event_loop = asyncio.get_event_loop()
     try:
         event_loop.run_until_complete(main(event_loop, __query_list__))
