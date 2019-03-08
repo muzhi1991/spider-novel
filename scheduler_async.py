@@ -51,7 +51,7 @@ __SCRIPT_DIR_PATH__ = None
 __spider_list__ = None
 # 爬的图书目录
 __query_list_path__ = None
-__query_list__ = None
+__query_list__ = []
 
 
 class MyException(Exception):
@@ -1011,16 +1011,16 @@ def __set_global_var(base_dir):
 
     # 证书位置
     __BASE_PATH__ = base_dir
-    __CACERT_PATH__ = __BASE_PATH__ + "/cert/cacert.pem"
-    __CLIENT_CRT_PATH__ = __BASE_PATH__ + "/cert/client.crt"
-    __CLIENT_KEY_PATH__ = __BASE_PATH__ + "/cert/client.key"
+    __CACERT_PATH__ = os.path.join(__BASE_PATH__, "cert/cacert.pem")
+    __CLIENT_CRT_PATH__ = os.path.join(__BASE_PATH__, "cert/client.crt")
+    __CLIENT_KEY_PATH__ = os.path.join(__BASE_PATH__, "cert/client.key")
 
     # 本地图书目录检测&&新建
     __BOOK_STORE_PATH__ = os.path.join(__BASE_PATH__, "book_store")
     os.path.exists(__BOOK_STORE_PATH__) or os.makedirs(__BOOK_STORE_PATH__)
 
     # 导入爬虫脚本的目录
-    __SCRIPT_DIR_PATH__ = __BASE_PATH__ + "/scripts"
+    __SCRIPT_DIR_PATH__ = os.path.join(__BASE_PATH__, "scripts")
     sys.path.insert(0, __SCRIPT_DIR_PATH__)
 
     # 配置日志输出
@@ -1039,23 +1039,23 @@ def __set_global_var(base_dir):
     global __query_list_path__
     __query_list_path__ = os.path.join(__BOOK_STORE_PATH__, "booklist.json")
     global __query_list__
-    __query_list__ = [
-        {"book_url": "http://www.aoyuge.com/16/16977/index.html",
-         "spider_name": "spider-origin", "name": "超级越界强者"},
-        {"book_url": "http://www.aoyuge.com/34/34380/index.html",
-         "spider_name": "spider-origin", "name": "女帝家的小白脸"},
-        {"book_url": "http://www.aoyuge.com/15/15779/index.html",
-         "spider_name": "spider-origin", "name": "万古神帝"}
-    ]
+    # __query_list__ = [
+    #     {"book_url": "http://www.aoyuge.com/16/16977/index.html",
+    #      "spider_name": "spider-origin", "name": "超级越界强者"},
+    #     {"book_url": "http://www.aoyuge.com/34/34380/index.html",
+    #      "spider_name": "spider-origin", "name": "女帝家的小白脸"},
+    #     {"book_url": "http://www.aoyuge.com/15/15779/index.html",
+    #      "spider_name": "spider-origin", "name": "万古神帝"}
+    # ]
 
     __query_list__ = json.load(open(__query_list_path__))
     __query_list__ = [item for sublist in __query_list__ for item in sublist]
 
 
-def start(book_store_path, query_list=__query_list__, parallel=100, start=0, end=sys.maxsize,
+def start(base_path, query_list=None, parallel=100, start=0, end=sys.maxsize,
           debug=False,
           progress=True, show_info=False):
-    __set_global_var(book_store_path)
+    __set_global_var(base_path)
     if debug:
         global logger
         logger = logging.getLogger("debug")
@@ -1065,6 +1065,8 @@ def start(book_store_path, query_list=__query_list__, parallel=100, start=0, end
         StatusMonitor.flag = False
     else:
         logging.getLogger().disabled = True
+    if query_list is None:
+        query_list = __query_list__
 
     event_loop = asyncio.get_event_loop()
     try:
