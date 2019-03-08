@@ -106,7 +106,8 @@ class BookCatalogManager:
         p = Path(path)
         if p.exists():
             try:
-                return json.load(open(path, encoding='utf-8'))
+                with open(path, encoding='utf-8') as f:
+                    return json.load(f)
             except Exception as e:
                 print(e)
                 return None
