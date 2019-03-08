@@ -121,40 +121,48 @@ class SpiderDetailTask(SpiderTask):
                         .format(book_url))
             return 1, new_tasks
 
-        # 数据爬取
         book_info = None
-        try:
-            # book_info = await SpiderTask.loop.run_in_executor(SpiderTask.executor,
-            #                                                   SpiderDetailTask.spider_one_detail,
-            #                                                   *(book_url, spider_name, proxy,
-            #                                                     self.consumer_id, self.id))
-            book_info = await self.spider_detail(session, book_url, spider_name, proxy)
-            spider_success_cnt += 1
-        except Exception as e:
-            logger.exception(
-                "consumer {} - task {}: SpiderDetailTask -- 爬图书详情错误！！！！".format(self.consumer_id,
-                                                                                self.id))
+        if BookCatalogManager.is_manifest_detail_downloaded(book_url):
+            # fixme for speedup detail only
+            return 1, new_tasks
+            logger.info("consumer {} - task {}:".format(self.consumer_id, self.id)
+                        + " SpiderDetailTask --book_url:{} 已经有了bookdetail，跳过爬取"
+                        .format(book_url))
+            book_info = BookCatalogManager.load_manifest_detail_by_url(book_url)
+        # 数据爬取
 
         if book_info is None:
-            # 代理问题切换爬虫重试
-            logger.warning(
-                "consumer {} - task {}: Detail爬虫任务异常，换proxy重试，重新放入queue".format(self.consumer_id,
-                                                                                self.id))
-            spider_success_ratio = spider_success_cnt * 1.0 / spider_total_cnt  # spider的成功率是0
-            new_tasks.append(self)
-            return spider_success_ratio, new_tasks
+            try:
+                book_info = await self.spider_detail(session, book_url, spider_name, proxy)
+                spider_success_cnt += 1
+            except Exception as e:
+                logger.exception(
+                    "consumer {} - task {}: SpiderDetailTask -- 爬图书详情错误！！！！".format(
+                        self.consumer_id,
+                        self.id))
+            if book_info is None:
+                # 代理问题切换爬虫重试
+                logger.warning(
+                    "consumer {} - task {}: Detail爬虫任务异常，换proxy重试，重新放入queue".format(
+                        self.consumer_id,
+                        self.id))
+                spider_success_ratio = spider_success_cnt * 1.0 / spider_total_cnt  # spider的成功率是0
+                new_tasks.append(self)
+                return spider_success_ratio, new_tasks
 
-        try:
-            self.add_to_bookstore_catalog_file(book_info)
-            self.add_to_book_manifest_detail_file(book_info)
-        except Exception as e:
+            # 存储detail
+            try:
+                self.add_to_book_manifest_detail_file(book_info)
+                self.add_to_bookstore_catalog_file(book_info)
+            except Exception as e:
 
-            logger.exception(
-                "consumer {} - task {}: SpiderDetailTask -- 添加书籍相关catalog/manifest文件错误，直接退出！！！".format(
-                    self.consumer_id,
-                    self.id))
-            raise e
-
+                logger.exception(
+                    "consumer {} - task {}: SpiderDetailTask -- 添加书籍相关catalog/manifest文件错误，直接退出！！！".format(
+                        self.consumer_id,
+                        self.id))
+                raise e
+            # fixme for speedup detail only
+            return 1, new_tasks
         # diff章节查询本地，需要爬的内容
         chapter_list = None
         book_dir_path = None
@@ -168,7 +176,6 @@ class SpiderDetailTask(SpiderTask):
                     self.consumer_id,
                     self.id))
             raise e
-
         # # 非代理问题重试
         # if chapter_list is None or book_dir_path is None:
         #     logger.warning(
@@ -462,7 +469,7 @@ class SpiderDetailTask(SpiderTask):
         # todo 加载内存判断？？
 
         book_dir_path = SpiderDetailTask.get_book_dir_path(book_info)
-        BookCatalogManager.add_book_to_catalog(book_dir_path)
+        BookCatalogManager.add_book_to_catalog(book_dir_path, book_info["book_url"])
         # catalog_path = os.path.join(__BOOK_STORE_PATH__, "__CATALOG__")
         # rel_book_path = os.path.relpath(book_dir_path, __BOOK_STORE_PATH__)
         # logger.debug(catalog_path)
@@ -788,7 +795,7 @@ class SpiderContentTask(SpiderTask):
         return True
 
 
-async def consumer(consumer_id, task_q, proxy):
+async def consumer(consumer_id, task_q, proxy, only_detail=False):
     logger.debug('consumer {}: waiting for task,using proxy - {}'.format(consumer_id, proxy))
     total_task = 0
     proxy_success_total_ration = 0
@@ -831,6 +838,9 @@ async def consumer(consumer_id, task_q, proxy):
                         .format(consumer_id, proxy_success_ration, len(new_need_tasks)))
                 new_put_cnt = 0
                 for new_task in new_need_tasks:
+                    # 只爬detail时，除了重试任务都不新添加
+                    if only_detail and new_task.try_cnt == 0:
+                        continue
                     if new_task.try_cnt == 0:
                         logger.debug(
                             "consumer {}: result -- 添加新任务 {} try_cnt {}"
@@ -875,12 +885,14 @@ async def consumer(consumer_id, task_q, proxy):
     logger.debug('consumer {}: ending'.format(consumer_id))
 
 
-async def producer(task_q, query_list, loop, executor):
+async def producer(task_q, query_list, loop, executor, only_detail=False):
     # print('producer: starting')
     # Add some numbers to the queue to simulate jobs
     start = 0
     end = 0
     chunk_size = 10
+    if only_detail:
+        chunk_size = 10000
     while start < len(query_list):
         if task_q.qsize() < 10000:
             end = start + chunk_size
@@ -890,13 +902,14 @@ async def producer(task_q, query_list, loop, executor):
                 query_item = query_list[i]
                 book_url = query_item['book_url']
                 spider_name = "spider-origin"  # query_item['spider_name']
-                logger.debug("producer: put detail task book_url: {}".format(book_url))
+
                 task_q.put_nowait(SpiderDetailTask(loop, executor, book_url, spider_name))
+            logger.debug("producer: put detail {}-{} task".format(start, end))
             start = end
-        await asyncio.sleep(1)
+        await asyncio.sleep(3)
 
 
-async def main(loop, query_list, parallel=100):
+async def main(loop, query_list, parallel=100, only_detail=False):
     proxy_list = await proxy_list_async.get_proxy_pool(parallel)
     # print(proxy_list)
     num_proxy = len(proxy_list)
@@ -914,17 +927,18 @@ async def main(loop, query_list, parallel=100):
     #     book_url = query_item['book_url']
     #     spider_name = "spider-origin"  # query_item['spider_name']
     #     task_q.put_nowait(SpiderDetailTask(loop, executor, book_url, spider_name))
-    producer_task = loop.create_task(producer(task_q, query_list, loop, executor))
+    producer_task = loop.create_task(producer(task_q, query_list, loop, executor, only_detail))
 
     # 用create_task直接启动了消费者
     consumers_tasks = dict()
     for i in range(num_proxy):
-        task = loop.create_task(consumer(i, task_q, proxy_list[i]))
+        task = loop.create_task(consumer(i, task_q, proxy_list[i], only_detail))
         consumers_tasks[task] = i
-
+    logger.debug("hehre1.......")
     while task_q.empty() and task_q._unfinished_tasks == 0:
+        logger.debug("waiting.......")
         await asyncio.sleep(1)
-
+    logger.debug("hehre2.......")
     # 等待所有 coroutines 都完成
     while not task_q.empty() or task_q._unfinished_tasks != 0:
         done, pending = await asyncio.wait(consumers_tasks.keys(), return_when=FIRST_COMPLETED,
@@ -1048,13 +1062,13 @@ def __set_global_var(base_dir):
     #      "spider_name": "spider-origin", "name": "万古神帝"}
     # ]
 
-    __query_list__ = json.load(open(__query_list_path__))
+    __query_list__ = json.load(open(__query_list_path__, encoding='utf-8'))
     __query_list__ = [item for sublist in __query_list__ for item in sublist]
 
 
 def start(base_path, query_list=None, parallel=100, start=0, end=sys.maxsize,
           debug=False,
-          progress=True, show_info=False):
+          progress=True, show_info=False, only_spider_detail=False):
     __set_global_var(base_path)
     if debug:
         global logger
@@ -1073,7 +1087,8 @@ def start(base_path, query_list=None, parallel=100, start=0, end=sys.maxsize,
         if event_loop.is_closed():  # 重复调用
             event_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(event_loop)
-        event_loop.run_until_complete(main(event_loop, query_list[start:end], parallel))
+        event_loop.run_until_complete(
+            main(event_loop, query_list[start:end], parallel, only_spider_detail))
     finally:
         event_loop.close()
 
@@ -1090,3 +1105,4 @@ def _main():
 
 if __name__ == '__main__':
     _main()
+    # start("./", progress=False, debug=True, only_spider_detail=True, start=300)
