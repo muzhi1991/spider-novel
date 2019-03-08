@@ -124,6 +124,7 @@ class SpiderDetailTask(SpiderTask):
         book_info = None
         if BookCatalogManager.is_manifest_detail_downloaded(book_url):
             # fixme for speedup detail only
+            StatusMonitor.update_monitor("book")
             return 1, new_tasks
             logger.info("consumer {} - task {}:".format(self.consumer_id, self.id)
                         + " SpiderDetailTask --book_url:{} 已经有了bookdetail，跳过爬取"
@@ -162,6 +163,7 @@ class SpiderDetailTask(SpiderTask):
                         self.id))
                 raise e
             # fixme for speedup detail only
+            StatusMonitor.update_monitor("book")
             return 1, new_tasks
         # diff章节查询本地，需要爬的内容
         chapter_list = None
@@ -300,7 +302,7 @@ class SpiderDetailTask(SpiderTask):
     @staticmethod
     def get_book_dir_path(book_info):
         if not book_info["title"] or not book_info["title"].strip():
-            raise Exception("必须有书名")
+            raise Exception("必须有书名 book_url:{}".format(book_info.get("book_url", "")))
 
         title = book_info["title"].strip()
         book_type = book_info["book_type"]
@@ -1071,6 +1073,7 @@ def start(base_path, query_list=None, parallel=100, start=0, end=sys.maxsize,
           progress=True, show_info=False, only_spider_detail=False):
     __set_global_var(base_path)
     global logger
+    logger.info("ready_start.......")
     if debug:
         logger = logging.getLogger("debug")
     if show_info:
@@ -1081,7 +1084,7 @@ def start(base_path, query_list=None, parallel=100, start=0, end=sys.maxsize,
         logging.getLogger().disabled = True
     if query_list is None:
         query_list = __query_list__
-
+    logger.info("ready_start.......")
     event_loop = asyncio.get_event_loop()
     try:
         if event_loop.is_closed():  # 重复调用
@@ -1105,4 +1108,5 @@ def _main():
 
 if __name__ == '__main__':
     _main()
-    # start("./", progress=False, debug=True, only_spider_detail=True, start=300)
+    # start("./", query_list=[{"book_url":"http://www.aoyuge.com/43/43368/index.html"}],progress=False, debug=True, only_spider_detail=True, start=0)
+    # start("./", progress=True, show_info=False, only_spider_detail=True, parallel=1200)

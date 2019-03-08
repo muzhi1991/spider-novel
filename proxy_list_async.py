@@ -9,6 +9,7 @@ import requests
 from requests_futures.sessions import FuturesSession
 from itertools import islice
 import logging
+import random
 
 session = FuturesSession(max_workers=50)
 
@@ -53,7 +54,8 @@ async def filter_proxy(proxy):
 
 
 # 预处理
-proxy_list_iter = filter(lambda p: p['anonymity'] == 'high_anonymous', load_proxy_file())
+proxy_list_iter = filter(lambda p: p['anonymity'] == 'high_anonymous',
+                         random.shuffle(load_proxy_file()))
 
 
 async def get_proxy_pool(num):
