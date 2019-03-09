@@ -203,7 +203,6 @@ class BookCatalogManager:
     @staticmethod
     def get_all_stat_cnt():
         # todo 使用walk实现
-        logging.info("开始{}下载数据统计数据".format(BookCatalogManager.store_path))
         catalog_path = os.path.join(BookCatalogManager.store_path, "__CATALOG__")
         sum_book = 0
         sum_chapter = 0

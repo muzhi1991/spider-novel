@@ -980,8 +980,9 @@ async def main(loop, query_list, parallel=100, only_detail=False):
     total_task_unique = 0  # 不包括重试任务
     error_task_unique = 0  # 不包括重试任务
     BookCatalogManager.load_catalog_info(__BOOK_STORE_PATH__)
+    logger.info("开始{}下载数据统计数据".format(BookCatalogManager.store_path))
     sum_book, sum_chapter, downloaded_chapter = BookCatalogManager.get_all_stat_cnt()
-    logging.info(
+    logger.info(
         "下载统计数据：总共{}本书，总章节数目:{}，已经下载的章节数目:{}".format(sum_book, sum_chapter, downloaded_chapter))
     # StatusMonitor.set_monitor("sum", len(query_list), "本")
     StatusMonitor.set_monitor("sum_chapter", sum_chapter, "本", sum_chapter - downloaded_chapter)
@@ -1164,7 +1165,8 @@ def start(base_path, one_driver_path, query_list=None, parallel=100, start=0, en
 
 
 def _main():
-    __set_global_var(os.path.dirname(os.path.realpath(__file__)),os.path.join(os.path.dirname(os.path.realpath(__file__)),"OneDrive"))
+    __set_global_var(os.path.dirname(os.path.realpath(__file__)),
+                     os.path.join(os.path.dirname(os.path.realpath(__file__)), "OneDrive"))
     logging.getLogger().disabled = True
     event_loop = asyncio.get_event_loop()
     try:
@@ -1175,8 +1177,9 @@ def _main():
 
 if __name__ == '__main__':
     # _main()
-    # __ONE_DRIVE_PATH__ = "./OneDrive"
-    # start("./", query_list=[{"book_url":"http://www.aoyuge.com/12/12610/index.html"}],progress=False, debug=True, only_spider_detail=True, start=0)
-    start("./", "/root/OneDrive", progress=True, show_info=True, parallel=10)
-    # start("./", query_list=[{"book_url": "http://www.aoyuge.com/12/12610/index.html"}],
-    #       progress=True, debug=True, parallel=10)
+    # spider
+    # start("./", "/root/OneDrive", progress=True, show_info=True, parallel=1500)
+    # local test
+    start("./", "./OneDrive",
+          query_list=[{"book_url": "http://www.aoyuge.com/12/12610/index.html"}],
+          progress=True, debug=True, parallel=10)
