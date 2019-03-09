@@ -985,7 +985,7 @@ async def main(loop, query_list, parallel=100, only_detail=False):
     logger.info(
         "下载统计数据：总共{}本书，总章节数目:{}，已经下载的章节数目:{}".format(sum_book, sum_chapter, downloaded_chapter))
     # StatusMonitor.set_monitor("sum", len(query_list), "本")
-    StatusMonitor.set_monitor("sum_chapter", sum_chapter, "本", sum_chapter - downloaded_chapter)
+    StatusMonitor.set_monitor("sum_chapter", sum_chapter, "章", downloaded_chapter)
 
     # for query_item in query_list:
     #     book_url = query_item['book_url']
