@@ -1,3 +1,5 @@
 .vscode
 target/
 logs/
+book_store/
+__pycache__/
