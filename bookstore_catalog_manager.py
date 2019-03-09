@@ -114,7 +114,7 @@ class BookCatalogManager:
 
     @staticmethod
     def load_manifest_detail_by_url(book_url):
-        BookCatalogManager.load_manifest_detail(
+        return BookCatalogManager.load_manifest_detail(
             os.path.join(BookCatalogManager.store_path, BookCatalogManager.urls[book_url]))
 
     @staticmethod

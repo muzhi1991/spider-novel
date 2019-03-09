@@ -35,7 +35,7 @@ from pathlib import Path
 
 __ORIGIN_TYPE_SPIDER__ = 2  # 凡是用网页爬虫的来源类型都定义为2
 
-__GLOBAL_EXECUTOR__ = ThreadPoolExecutor(max_workers=50)
+__GLOBAL_EXECUTOR__ = ThreadPoolExecutor(max_workers=200)
 __GLOBAL_PROCESS_EXECUTOR_ZIP__ = ProcessPoolExecutor(max_workers=2)
 __GLOBAL_FUTURE_REQUEST_SESSION__ = FuturesSession(executor=__GLOBAL_EXECUTOR__)
 
@@ -219,6 +219,8 @@ class SpiderDetailTask(SpiderTask):
                         self.consumer_id,
                         self.id))
                 raise e
+        else:
+            spider_success_cnt += 1
         # diff章节查询本地，需要爬的内容
         chapter_list = None
         book_dir_path = None
@@ -634,8 +636,9 @@ class SpiderContentTask(SpiderTask):
                 spider_success_cnt += 1
             except Exception as e:
                 logger.exception(
-                    "consumer {} - task {}: SpiderContentTask -- Error:".format(self.consumer_id,
-                                                                                self.id, e))
+                    "consumer {} - task {}: SpiderContentTask -- {} Error:".format(self.consumer_id,
+                                                                                   self.id, e,
+                                                                                   content_url))
             if t is None or c is None:
                 # 代理问题切换爬虫重试
                 logger.warning("consumer {} - task {}: Content爬虫执行错误，换proxy重试，重新放入queue".format(
@@ -823,19 +826,17 @@ class SpiderContentTask(SpiderTask):
             chapter_title) + ".txt"
 
     async def post_to_local_file(self, book_dir_path, chapter_id, chapter_title, content):
-        def run():
-            chapter_file_name = self.generate_chapter_file_name(chapter_id, chapter_title)
-            # Opens a file for both writing and reading. Overwrites the existing file if the file exists.
-            # If the file does not exist, creates a new file for reading and writing.
-            file_path = os.path.join(book_dir_path, chapter_file_name)
-            with open(file_path + ".tmp", 'w+', encoding='utf8') as f:
-                # Note that f has now been truncated to 0 bytes, so you'll only
-                # be able to read data that you write after this point
-                f.write(content)
-            os.rename(file_path + ".tmp", file_path)
-            return True
-
-        return await SpiderTask.loop.run_in_executor(SpiderTask.executor, run)
+        chapter_file_name = self.generate_chapter_file_name(chapter_id, chapter_title)
+        # Opens a file for both writing and reading. Overwrites the existing file if the file exists.
+        # If the file does not exist, creates a new file for reading and writing.
+        file_path = os.path.join(book_dir_path, chapter_file_name)
+        with open(file_path + ".tmp", 'w+', encoding='utf8') as f:
+            # Note that f has now been truncated to 0 bytes, so you'll only
+            # be able to read data that you write after this point
+            f.write(content)
+        os.rename(file_path + ".tmp", file_path)
+        return True
+        # return run() #await SpiderTask.loop.run_in_executor(__GLOBAL_PROCESS_EXECUTOR_ZIP__, run)
 
     async def append_to_book_manifest_downloaded_file(self, book_dir_path, chapter_id):
         """
@@ -863,7 +864,7 @@ async def consumer(consumer_id, task_q, proxy, only_detail=False):
         logger.debug('consumer {}: waiting for task'.format(consumer_id))
         task = None
         try:
-            task = await task_q.get()
+            _, task = await task_q.get()
         except asyncio.CancelledError as e:
             # 退出点3
             raise MyException("consumer {}:正常退出", e, error_task_unique, total_task_unique)
@@ -880,8 +881,10 @@ async def consumer(consumer_id, task_q, proxy, only_detail=False):
                 logger.warning(
                     'consumer {}: 队列太长，暂停SpiderDetailTask{} reshuffle to tail of queue..... '.format(
                         consumer_id, task.id))
+                # 为了生成新的递增id
                 task_q.task_done()
-                task_q.put_nowait(task)
+                new_task = SpiderDetailTask(SpiderTask.loop, SpiderTask.executor, *task.args)
+                task_q.put_nowait((id(new_task), new_task))
                 continue
             task.consumer_id = consumer_id
             total_task += 1
@@ -911,7 +914,8 @@ async def consumer(consumer_id, task_q, proxy, only_detail=False):
                     if new_task.try_cnt <= 3:
                         new_put_cnt += 1
                         new_task.consumer_id = ""
-                        await task_q.put(new_task)  # 相当于递归生成新的任务
+                        # id 为自增的
+                        task_q.put_nowait((id(new_task), new_task))  # 相当于递归生成新的任务
                     else:
                         error_task_unique += 1
                         logger.critical(
@@ -960,8 +964,8 @@ async def producer(task_q, query_list, loop, executor, only_detail=False):
                 query_item = query_list[i]
                 book_url = query_item['book_url']
                 spider_name = "spider-origin"  # query_item['spider_name']
-
-                task_q.put_nowait(SpiderDetailTask(loop, executor, book_url, spider_name))
+                new_task = SpiderDetailTask(loop, executor, book_url, spider_name)
+                task_q.put_nowait((id(new_task), new_task))
             logger.debug("producer: put detail {}-{} task".format(start, end))
             start = end
         await asyncio.sleep(3)
@@ -973,7 +977,7 @@ async def main(loop, query_list, parallel=100, only_detail=False):
     num_proxy = len(proxy_list)
     # 创建指定大小的队列，这样的话生产者将会阻塞
     # 直到有消费者获取数据
-    task_q = asyncio.Queue()
+    task_q = asyncio.PriorityQueue()
 
     executor = __GLOBAL_EXECUTOR__
     # 统计信息
@@ -1043,7 +1047,8 @@ async def main(loop, query_list, parallel=100, only_detail=False):
                     # logger.exception(
                     #     "main loop: !!!!!!!未预测到的Exception退出customer{}:".format(consumer_id))
                     logger.critical(
-                        "main loop: !!!!!!!未预测到的Exception退出customer{}:".format(consumer_id))
+                        "main loop: !!!!!!!未预测到的Exception退出customer{}:{}".format(consumer_id,
+                                                                                 str(e.errors)))
 
     logger.info("main loop: queue is empty, exiting waiting queue")
 
@@ -1100,7 +1105,7 @@ def __set_global_var(base_dir, one_driver_path):
     __BOOK_STORE_PATH__ = os.path.join(__BASE_PATH__, "book_store")
     os.path.exists(__BOOK_STORE_PATH__) or os.makedirs(__BOOK_STORE_PATH__)
 
-    __ONE_DRIVE_BOOKSTORE_PATH__ = os.path.join(__ONE_DRIVE_PATH__, "book_store")
+    __ONE_DRIVE_BOOKSTORE_PATH__ = os.path.join(__ONE_DRIVE_PATH__, "aoyuge")
     os.path.exists(__ONE_DRIVE_BOOKSTORE_PATH__) or os.makedirs(__ONE_DRIVE_BOOKSTORE_PATH__)
 
     # 导入爬虫脚本的目录
@@ -1178,8 +1183,8 @@ def _main():
 if __name__ == '__main__':
     # _main()
     # spider
-    # start("./", "/root/OneDrive", progress=True, show_info=True, parallel=1500)
+    # start("./", "/root/OneDrive", progress=True, show_info=False, parallel=1000)
     # local test
     start("./", "./OneDrive",
           query_list=[{"book_url": "http://www.aoyuge.com/12/12610/index.html"}],
-          progress=True, debug=True, parallel=10)
+          progress=True, debug=True, parallel=1000)
