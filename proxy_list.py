@@ -39,6 +39,8 @@ def load_proxy_file():
 
 
 def convert_to_request_proxy(proxy):
+    if proxy == {}:
+        return {}
     return {proxy['type']: proxy['host'] + ":" + str(proxy['port'])}
 
 
@@ -97,7 +99,7 @@ def get_proxy_avaliable():
         proxy_list_iter = filter(lambda p: p['anonymity'] == 'high_anonymous',
                                  load_proxy_file())
         res = next(proxy_list_iter, {})  # 默认给个空
-    return res
+    return convert_to_request_proxy(res)
     # return (await get_proxy_pool(1))[0]
 
 
