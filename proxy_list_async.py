@@ -25,7 +25,8 @@ def load_proxy_file():
     proxy_text = requests.get(
         "https://raw.githubusercontent.com/fate0/proxylist/master/proxy.list", proxies=p).text
     proxy_list = [json.loads(line) for line in proxy_text.splitlines()]
-    logging.debug("get proxy list len :{}".format(len(proxy_list)))
+    random.shuffle(proxy_list)
+    logging.info("刷新代理源 获得代理{}个".format(len(proxy_list)))
     return proxy_list
 
 
@@ -46,16 +47,20 @@ async def filter_proxy(proxy):
         # 这块是concurrent.futures.Future转成asyncio.Future,await 求值有抛出可能异常因为concurrent的result()
         resp = await asyncio.wrap_future(f)
     except Exception as e:
-        # logging.exception("request error")
+        logging.exception("request error")
         return None
-    if resp.ok:
-        return convert_to_request_proxy(proxy)
+    # logging.warning(resp)
+    try:
+        if resp.ok:
+            return convert_to_request_proxy(proxy)
+    except Exception as e:
+        logging.getLogger("online").critical("严重的错误!!!!!!!")
+        pass
     return None
 
 
 # 预处理
 proxy_list = load_proxy_file()
-random.shuffle(proxy_list)
 proxy_list_iter = filter(lambda p: p['anonymity'] == 'high_anonymous', proxy_list)
 
 
@@ -69,7 +74,8 @@ async def get_proxy_pool(num):
         done, pending = await asyncio.wait(map(filter_proxy, check_list))
         pl = [t for t in [x.result() for x in done] if t is not None]
         if len(check_list) < num:
-            proxy_list_iter = load_proxy_file()
+            proxy_list_iter = filter(lambda p: p['anonymity'] == 'high_anonymous',
+                                     load_proxy_file())
             level += 1
         res.extend(pl)
         num = num - len(pl)
@@ -80,7 +86,10 @@ async def get_proxy_avaliable():
     return (await get_proxy_pool(1))[0]
 
 
-async def refresh_proxy_pool(pool, index=-1):
+async def refresh_proxy_pool(pool, index=-1, force=False):
+    global proxy_list_iter
+    if force:
+        proxy_list_iter = filter(lambda p: p['anonymity'] == 'high_anonymous', load_proxy_file())
     if index == -1:
         p2 = await get_proxy_pool(len(pool))
         pool.clear()
@@ -93,6 +102,7 @@ async def refresh_proxy_pool(pool, index=-1):
 if __name__ == '__main__':
     async def main():
         t = await get_proxy_pool(100)
+        await refresh_proxy_pool(t, force=True)
         print("proxy list async return: ", t)
 
 

@@ -858,6 +858,7 @@ async def consumer(consumer_id, task_q, proxy, only_detail=False):
     logger.debug('consumer {}: waiting for task,using proxy - {}'.format(consumer_id, proxy))
     total_task = 0
     proxy_success_total_ration = 0
+    proxy_low_success_cnt = 0
     total_task_unique = 0  # 不包括重试任务
     error_task_unique = 0  # 不包括重试任务
     while True:
@@ -894,6 +895,8 @@ async def consumer(consumer_id, task_q, proxy, only_detail=False):
                     total_task_unique += 1
                 proxy_success_ration, new_need_tasks = await task.start(proxy)
                 proxy_success_total_ration += proxy_success_ration
+                if proxy_success_ration < 0.5:
+                    proxy_low_success_cnt += 1
                 logger.debug(
                     "consumer {}: result -- 本次任务proxy请求成功率{} 返回新任务数量{}"
                         .format(consumer_id, proxy_success_ration, len(new_need_tasks)))
@@ -911,7 +914,7 @@ async def consumer(consumer_id, task_q, proxy, only_detail=False):
                         logger.debug(
                             "consumer {}: result -- 试图添加重试任务 {} try_cnt {}"
                                 .format(consumer_id, new_task.id, new_task.try_cnt))
-                    if new_task.try_cnt <= 3:
+                    if new_task.try_cnt <= 6:
                         new_put_cnt += 1
                         new_task.consumer_id = ""
                         # id 为自增的
@@ -933,14 +936,16 @@ async def consumer(consumer_id, task_q, proxy, only_detail=False):
                 raise MyException("consumer {}:!!!!!!!未预测到的Exception:", e, error_task_unique,
                                   total_task_unique)
 
-            logger.debug("consumer {}: result -- {}代理平均成功率{}"
-                         .format(consumer_id, proxy, proxy_success_total_ration / total_task))
+            logger.debug("consumer {}: result -- {}代理平均成功率{}，低成功率任务数{}"
+                         .format(consumer_id, proxy, proxy_success_total_ration / total_task,
+                                 proxy_low_success_cnt))
 
             # todo 任务先休息1s 注意这里的顺序，或者捕获sleep的异常，因为可能出现cannel异常，我这里依赖异常返回值了
             await asyncio.sleep(1)
             task_q.task_done()
 
-            if total_task >= 3 and proxy_success_total_ration / total_task < 0.5:
+            if total_task >= 2 and (
+                    proxy_success_total_ration / total_task < 0.5 or proxy_low_success_cnt >= 3):
                 # 退出点2
                 raise ProxyAvailableException("proxy error", error_task_unique, total_task_unique)
 
@@ -983,9 +988,10 @@ async def main(loop, query_list, parallel=100, only_detail=False):
     # 统计信息
     total_task_unique = 0  # 不包括重试任务
     error_task_unique = 0  # 不包括重试任务
+    proxy_switch_cnt = 0  # 代理切换数目
     BookCatalogManager.load_catalog_info(__BOOK_STORE_PATH__)
     logger.info("开始{}下载数据统计数据".format(BookCatalogManager.store_path))
-    sum_book, sum_chapter, downloaded_chapter = BookCatalogManager.get_all_stat_cnt()
+    sum_book, sum_chapter, downloaded_chapter = BookCatalogManager.get_all_stat_cnt(query_list)
     logger.info(
         "下载统计数据：总共{}本书，总章节数目:{}，已经下载的章节数目:{}".format(sum_book, sum_chapter, downloaded_chapter))
     # StatusMonitor.set_monitor("sum", len(query_list), "本")
@@ -1007,13 +1013,15 @@ async def main(loop, query_list, parallel=100, only_detail=False):
         await asyncio.sleep(1)
     # 等待所有 coroutines 都完成
     while not task_q.empty() or task_q._unfinished_tasks != 0:
+        if proxy_switch_cnt > 3:
+            await proxy_list_async.refresh_proxy_pool(proxy_list, force=True)
         done, pending = await asyncio.wait(consumers_tasks.keys(), return_when=FIRST_COMPLETED,
                                            timeout=1)
         logger.debug(
             "main loop: waiting status : done-{} pending-{} ".format(len(done), len(pending)))
         # 不论什么原因返回，全部启动
         if len(done) != 0:
-            logger.debug(
+            logger.warning(
                 "main loop: {}个custom退出, check need to restart consumer using new proxy ".format(
                     len(done)))
             logger.debug("!!!!来拉")
@@ -1025,6 +1033,7 @@ async def main(loop, query_list, parallel=100, only_detail=False):
                                    .format(consumer_id, res))
                 except ProxyAvailableException as e:
                     logger.debug("!!!!state1:{}".format(e.args))
+                    proxy_switch_cnt += 1
                     (error_cnt, total_cnt) = e.args
                     error_task_unique += error_cnt
                     total_task_unique += total_cnt
@@ -1080,8 +1089,8 @@ async def main(loop, query_list, parallel=100, only_detail=False):
         "main loop: final result total task:{} error task:{} success_ratio:{}% ".format(
             total_task_unique, error_task_unique, success_ratio * 100))
     await producer_task
-    logger.critical("main loop: 10s后结束运行 ")
-    await asyncio.sleep(10)
+    logger.critical("main loop: 120s后结束运行 ")
+    await asyncio.sleep(120)
 
 
 def __set_global_var(base_dir, one_driver_path):
@@ -1187,4 +1196,4 @@ if __name__ == '__main__':
     # local test
     start("./", "./OneDrive",
           query_list=[{"book_url": "http://www.aoyuge.com/12/12610/index.html"}],
-          progress=True, debug=True, parallel=1000)
+          progress=True, debug=True, parallel=100)
