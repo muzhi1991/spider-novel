@@ -11,7 +11,7 @@ from itertools import islice
 import logging
 import random
 
-session = FuturesSession(max_workers=50)
+__future_session = FuturesSession(max_workers=50)
 
 
 def load_proxy_file():
@@ -41,21 +41,18 @@ async def filter_proxy(proxy):
         proxy['type']: proxy['host'] + ":" + str(proxy['port']),
     }
 
-    f = session.get("https://www.baidu.com", proxies=p, timeout=2)
-
     try:
+        # 这句话也会有异常！！！！，这个奇葩的库，先这么用把
+        f = __future_session.get("https://www.baidu.com", proxies=p, timeout=2)
         # 这块是concurrent.futures.Future转成asyncio.Future,await 求值有抛出可能异常因为concurrent的result()
         resp = await asyncio.wrap_future(f)
+        if resp and resp.ok:
+            return convert_to_request_proxy(proxy)
     except Exception as e:
         logging.exception("request error")
         return None
     # logging.warning(resp)
-    try:
-        if resp.ok:
-            return convert_to_request_proxy(proxy)
-    except Exception as e:
-        logging.getLogger("online").critical("严重的错误!!!!!!!")
-        pass
+
     return None
 
 

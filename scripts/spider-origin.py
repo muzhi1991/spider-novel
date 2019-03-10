@@ -98,6 +98,7 @@ def spider_book_detail(book_url, proxy={}):
 
 
 def spider_parse_detail(book_url, html_content):
+    # doc = pq(html_content.decode('gbk'))
     doc = pq(html_content)
     infos = parse_book_info(doc)
     chapter_list = parse_chapter_list(doc, book_url)
@@ -185,6 +186,12 @@ def spider_parse_content(book_url, content_url, content_html):
     content_doc = pq(content_html)
     content_title = content_doc(".article h1").text()
     content = content_doc(".article #BookText").text()
+    return content_title, content
+
+def spider_parse_content_m(book_url, content_url, content_html):
+    content_doc = pq(content_html)
+    content_title = content_doc(".nr_title").text()
+    content = content_doc("#nr1").text()
     return content_title, content
 
 
