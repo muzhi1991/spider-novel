@@ -1013,7 +1013,7 @@ async def main(loop, query_list, parallel=100, only_detail=False):
         await asyncio.sleep(1)
     # 等待所有 coroutines 都完成
     while not task_q.empty() or task_q._unfinished_tasks != 0:
-        if proxy_switch_cnt > 3:
+        if proxy_switch_cnt > 1000:
             await proxy_list_async.refresh_proxy_pool(proxy_list, force=True)
         done, pending = await asyncio.wait(consumers_tasks.keys(), return_when=FIRST_COMPLETED,
                                            timeout=1)
