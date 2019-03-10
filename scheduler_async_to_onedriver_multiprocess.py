@@ -6,7 +6,7 @@ import logging
 import logging_config
 import spider_common_info
 
-import proxy_list_async
+import proxy_list
 from status_monitor import StatusMonitor
 from bookstore_catalog_manager import BookCatalogManager
 import uuid
@@ -25,9 +25,9 @@ import subprocess
 import json
 import random
 import hashlib
-# import requests
-from requests_futures.sessions import FuturesSession
+import requests
 import tarfile
+from functools import partial
 
 # for db
 
@@ -37,7 +37,6 @@ __ORIGIN_TYPE_SPIDER__ = 2  # 凡是用网页爬虫的来源类型都定义为2
 
 __GLOBAL_EXECUTOR__ = ThreadPoolExecutor(max_workers=200)
 __GLOBAL_PROCESS_EXECUTOR__ = ProcessPoolExecutor(max_workers=50)
-__GLOBAL_FUTURE_REQUEST_SESSION__ = FuturesSession(executor=__GLOBAL_EXECUTOR__)
 
 ## 如果队列里面爬的任务太对，把爬章节的内容放队列后面，控制长度
 __MAX_DETAIL_WAIT_QUEUE_SIZE__ = 30000
@@ -161,7 +160,7 @@ class SpiderDetailTask(SpiderTask):
         self.increase_try_cnt()
         # self.kwargs.update({"proxy": proxy})
         (book_url, spider_name, proxy) = (*self.args, proxy)
-        session = FuturesSession(executor=__GLOBAL_EXECUTOR__)
+        session = None #FuturesSession(executor=__GLOBAL_EXECUTOR__)
         spider_total_cnt = 1
         spider_success_cnt = 0
         new_tasks = []
@@ -284,8 +283,14 @@ class SpiderDetailTask(SpiderTask):
     def request_url_async(session, url, proxy):
         book_headers = {**(spider_common_info.__common_headers__),
                         'If-None-Match': str(int(time.time()))}
-        f = session.get(url, headers=book_headers, proxies=proxy, timeout=30)
-        return asyncio.wrap_future(f)
+        # session=requests.session()
+        # session.proxies.update(proxy)
+        # session.headers.update(book_headers)
+        get_request = partial(requests.get, headers=book_headers, proxies=proxy, timeout=15)
+        f = SpiderTask.loop.run_in_executor(__GLOBAL_EXECUTOR__,
+                                            get_request, url)
+        # f = session.get(url, headers=book_headers, proxies=proxy, timeout=30)
+        return f
 
     async def spider_detail(self, session, book_url, spider_name, proxy):
         infos = None
@@ -609,7 +614,7 @@ class SpiderContentTask(SpiderTask):
     async def start(self, proxy):
         self.increase_try_cnt()
         (arg_chunks, proxy) = (*self.args, proxy)
-        session = FuturesSession(executor=__GLOBAL_EXECUTOR__)
+        session = None #FuturesSession(executor=__GLOBAL_EXECUTOR__)
         spider_total_cnt = len(arg_chunks)
         spider_success_cnt = 0
         failed_arg_chunks = []
@@ -703,17 +708,25 @@ class SpiderContentTask(SpiderTask):
 
     @staticmethod
     def request_url_async(session, url, proxy, headers={}):
+
         book_headers = {**spider_common_info.__common_headers__, **headers,
                         'If-None-Match': str(int(time.time()))}
-        f = session.get(url, headers=book_headers, proxies=proxy, timeout=15)
-        return asyncio.wrap_future(f)
+        # f = session.get(url, headers=book_headers, proxies=proxy, timeout=15)
+        get_request = partial(requests.get, headers=book_headers, proxies=proxy, timeout=15)
+        f = SpiderTask.loop.run_in_executor(__GLOBAL_EXECUTOR__,
+                                            get_request, url)
+        return f
 
     @staticmethod
     def request_url_async_m(session, url, proxy, headers={}):
         book_headers = {**spider_common_info.__common_headers_m__, **headers,
                         'If-None-Match': str(int(time.time()))}
-        f = session.get(url, headers=book_headers, proxies=proxy, timeout=15)
-        return asyncio.wrap_future(f)
+        get_request = partial(requests.get, headers=book_headers, proxies=proxy, timeout=15)
+        f = SpiderTask.loop.run_in_executor(__GLOBAL_EXECUTOR__,
+                                            get_request, url)
+
+        # f = session.get(url, headers=book_headers, proxies=proxy, timeout=15)
+        return f
 
     async def spider_content(self, session, spider_name, content_url, book_url, proxy):
         t = None
@@ -1063,9 +1076,9 @@ async def producer(task_q, query_list, loop, executor, only_detail=False):
 
 
 async def main(loop, query_list, parallel=100, only_detail=False):
-    proxy_list = await proxy_list_async.get_proxy_pool(parallel)
+    proxy_list_pool =  proxy_list.get_proxy_pool(parallel)
     # print(proxy_list)
-    num_proxy = len(proxy_list)
+    num_proxy = len(proxy_list_pool)
     # 创建指定大小的队列，这样的话生产者将会阻塞
     # 直到有消费者获取数据
     task_q = asyncio.PriorityQueue()
@@ -1092,7 +1105,7 @@ async def main(loop, query_list, parallel=100, only_detail=False):
     # 用create_task直接启动了消费者
     consumers_tasks = dict()
     for i in range(num_proxy):
-        task = loop.create_task(consumer(i, task_q, proxy_list[i], only_detail))
+        task = loop.create_task(consumer(i, task_q, proxy_list_pool[i], only_detail))
         consumers_tasks[task] = i
     while task_q.empty() and task_q._unfinished_tasks == 0:
         logger.debug("waiting.......")
@@ -1101,7 +1114,7 @@ async def main(loop, query_list, parallel=100, only_detail=False):
     while not task_q.empty() or task_q._unfinished_tasks != 0:
         if proxy_switch_cnt > 1000:
             logger.warning("main loop: 大量代理切换共{}次，刷新代理源".format(proxy_switch_cnt))
-            await proxy_list_async.refresh_proxy_pool(proxy_list, force=True)
+            proxy_list.refresh_proxy_pool(proxy_list_pool, force=True)
             proxy_switch_cnt = 0
             logger.warning("main loop: 刷新代理源成功")
         done, pending = await asyncio.wait(consumers_tasks.keys(), return_when=FIRST_COMPLETED,
@@ -1126,7 +1139,7 @@ async def main(loop, query_list, parallel=100, only_detail=False):
                     (error_cnt, total_cnt) = e.args
                     error_task_unique += error_cnt
                     total_task_unique += total_cnt
-                    new_proxy = await proxy_list_async.get_proxy_avaliable()
+                    new_proxy = proxy_list.get_proxy_avaliable()
                     new_consumer = consumer(consumer_id, task_q, new_proxy)
                     new_consumer_task = loop.create_task(new_consumer)
                     logger.warning(
