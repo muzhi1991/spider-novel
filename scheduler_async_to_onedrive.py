@@ -311,7 +311,10 @@ class SpiderDetailTask(SpiderTask):
                 last_exception = e
                 continue
         if infos is None:
-            raise last_exception
+            if last_exception is not None:
+                raise last_exception
+            else:
+                raise Exception("神奇的异常")
         return infos
 
     @staticmethod
@@ -638,6 +641,8 @@ class SpiderContentTask(SpiderTask):
                     "consumer {} - task {}: SpiderContentTask -- {} Error:".format(self.consumer_id,
                                                                                    self.id, e,
                                                                                    content_url))
+
+            if t is None or c is None:
                 (t, c) = await self.try_m_site_safe(session, spider_name, content_url, book_url,
                                                     proxy)
 
@@ -744,7 +749,10 @@ class SpiderContentTask(SpiderTask):
                 continue
 
         if t is None or c is None:
-            raise last_exception
+            if last_exception is not None:
+                raise last_exception
+            else:
+                raise Exception("神奇的异常")
         logger.debug(
             "consumer {} - task {} : start_spider_content -- "
             "Result: 爬到标题：{}".format(self.consumer_id, self.id, t))
@@ -793,8 +801,11 @@ class SpiderContentTask(SpiderTask):
                 last_exception = e
                 continue
 
-        if t is None or c is None:
-            raise last_exception
+        if t is None or c is None :
+            if last_exception is not None:
+                raise last_exception
+            else:
+                raise Exception("神奇的异常")
         logger.debug(
             "consumer {} - task {} : start_spider_content from m site -- "
             "Result: 爬到标题：{}".format(self.consumer_id, self.id, t))
@@ -1112,8 +1123,8 @@ async def main(loop, query_list, parallel=100, only_detail=False):
                     new_consumer = consumer(consumer_id, task_q, new_proxy)
                     new_consumer_task = loop.create_task(new_consumer)
                     logger.warning(
-                        "main loop: 切换代理 restart consumer {} using new proxy {} "
-                            .format(consumer_id, new_proxy))
+                        "main loop: 切换代理 restart consumer {} using new proxy {} switch_cnt{} "
+                            .format(consumer_id, new_proxy,proxy_switch_cnt))
                     consumers_tasks.pop(done_task, None)  # 退出
                     consumers_tasks[new_consumer_task] = consumer_id  # 重新加入
                 except MyException as e:

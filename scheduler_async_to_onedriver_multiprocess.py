@@ -648,9 +648,9 @@ class SpiderContentTask(SpiderTask):
                     "consumer {} - task {}: SpiderContentTask -- {} Error:".format(self.consumer_id,
                                                                                    self.id, e,
                                                                                    content_url))
+            if t is None or c is None:
                 (t, c) = await self.try_m_site_safe(session, spider_name, content_url, book_url,
                                                     proxy)
-
             if t is None or c is None:
                 # 代理问题切换爬虫重试
                 logger.warning("consumer {} - task {}: Content爬虫执行错误，换proxy重试，重新放入queue".format(
@@ -744,9 +744,9 @@ class SpiderContentTask(SpiderTask):
 
             try:
                 t, c = await SpiderTask.loop.run_in_executor(__GLOBAL_PROCESS_EXECUTOR__,
-                                                              __spider_list__[
-                                                                  spider_name].spider_parse_content,
-                                                              book_url, content_url, resp.content)
+                                                             __spider_list__[
+                                                                 spider_name].spider_parse_content,
+                                                             book_url, content_url, resp.content)
                 # t, c = __spider_list__[spider_name].spider_parse_content(book_url, content_url,
                 #                                                          resp.content)
             except Exception as e:
@@ -1130,8 +1130,8 @@ async def main(loop, query_list, parallel=100, only_detail=False):
                     new_consumer = consumer(consumer_id, task_q, new_proxy)
                     new_consumer_task = loop.create_task(new_consumer)
                     logger.warning(
-                        "main loop: 切换代理 restart consumer {} using new proxy {} "
-                            .format(consumer_id, new_proxy))
+                        "main loop: 切换代理 restart consumer {} using new proxy {} switch_cnt{} "
+                            .format(consumer_id, new_proxy, proxy_switch_cnt))
                     consumers_tasks.pop(done_task, None)  # 退出
                     consumers_tasks[new_consumer_task] = consumer_id  # 重新加入
                 except MyException as e:
