@@ -631,10 +631,8 @@ class SpiderContentTask(SpiderTask):
             t = None
             c = None
             try:
-                (t, c) = await self.try_m_site_safe(session, spider_name, content_url, book_url,
-                                                    proxy)
-                # (t, c) = await self.spider_content(session, spider_name, content_url, book_url,
-                #                                    proxy)
+                (t, c) = await self.spider_content(session, spider_name, content_url, book_url,
+                                                   proxy)
             except Exception as e:
                 logger.exception(
                     "consumer {} - task {}: SpiderContentTask -- {} Error:".format(self.consumer_id,
@@ -1273,4 +1271,4 @@ if __name__ == '__main__':
     # local test
     start("./", "./OneDrive",
           query_list=[{"book_url": "http://www.aoyuge.com/12/12610/index.html"}],
-          progress=True, show_info=True, parallel=10)
+          progress=True, debug=True, parallel=10)
