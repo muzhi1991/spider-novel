@@ -198,6 +198,9 @@ class SpiderDetailTask(SpiderTask):
             try:
                 book_info = await self.spider_detail(session, book_url, spider_name, proxy)
                 spider_success_cnt += 1
+            except requests.RequestException as e:
+                logger.info(
+                    "网络请求连接错误: content_url:{} error:{} proxy:{}".format(book_url, str(e), proxy))
             except Exception as e:
                 logger.exception(
                     "consumer {} - task {}: SpiderDetailTask -- 爬图书详情错误！！！！".format(
@@ -313,7 +316,7 @@ class SpiderDetailTask(SpiderTask):
                     resp.content.decode("utf8"))
                 # logger.error(error_info)
                 try_num = try_num + 1
-                last_exception = Exception(error_info)
+                last_exception = requests.RequestException(error_info)
                 continue
 
             try:
@@ -649,7 +652,8 @@ class SpiderContentTask(SpiderTask):
                 (t, c) = await self.spider_content(session, spider_name, content_url, book_url,
                                                    proxy)
             except requests.exceptions.RequestException as e:
-                logger.debug("网络请求连接错误:" + str(e))
+                logger.info(
+                    "网络请求连接错误: content_url:{} error:{} proxy:{}".format(content_url, str(e), proxy))
             except Exception as e:
                 logger.exception(
                     "consumer {} - task {}: SpiderContentTask -- {} 其他异常Error:".format(self.consumer_id,
@@ -754,7 +758,7 @@ class SpiderContentTask(SpiderTask):
                     resp.content.decode("utf8"))
                 # logger.error(error_info)
                 try_num = try_num + 1
-                last_exception = Exception(error_info)
+                last_exception = requests.RequestException(error_info)
                 continue
 
             try:
@@ -808,7 +812,7 @@ class SpiderContentTask(SpiderTask):
                     resp.content.decode("utf8"))
                 # logger.error(error_info)
                 try_num = try_num + 1
-                last_exception = Exception(error_info)
+                last_exception = requests.RequestException(error_info)
                 continue
 
             try:
@@ -841,8 +845,8 @@ class SpiderContentTask(SpiderTask):
         try:
             return await self.spider_content_m(session, spider_name, content_url, book_url, proxy)
         except requests.exceptions.RequestException as e:
-            logger.debug("网络请求连接错误:"+str(e))
-            pass
+            logger.info(
+                "网络请求连接错误: content_url:{} error:{} proxy:{}".format(content_url, str(e), proxy))
         except Exception as e:
             logger.exception("m站请求错误,其他异常")
         return None, None
