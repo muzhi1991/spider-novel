@@ -1129,7 +1129,9 @@ async def main(loop, query_list, parallel=100, only_detail=False):
         done, pending = await asyncio.wait(consumers_tasks.keys(), return_when=FIRST_COMPLETED,
                                            timeout=1)
         logger.debug(
-            "main loop: waiting status : done-{} pending-{} ".format(len(done), len(pending)))
+            "main loop: waiting status : done-{} pending-{} qsize-{} ".format(len(done),
+                                                                              len(pending),
+                                                                              task_q.qsize()))
         # 不论什么原因返回，全部启动
         if len(done) != 0:
             logger.warning(
