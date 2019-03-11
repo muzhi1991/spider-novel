@@ -35,7 +35,7 @@ from pathlib import Path
 
 __ORIGIN_TYPE_SPIDER__ = 2  # 凡是用网页爬虫的来源类型都定义为2
 
-__GLOBAL_EXECUTOR__ = ThreadPoolExecutor(max_workers=200)
+__GLOBAL_EXECUTOR__ = ThreadPoolExecutor(max_workers=1000)
 __GLOBAL_PROCESS_EXECUTOR__ = ProcessPoolExecutor(max_workers=50)
 
 ## 如果队列里面爬的任务太对，把爬章节的内容放队列后面，控制长度
@@ -160,7 +160,7 @@ class SpiderDetailTask(SpiderTask):
         self.increase_try_cnt()
         # self.kwargs.update({"proxy": proxy})
         (book_url, spider_name, proxy) = (*self.args, proxy)
-        session = None #FuturesSession(executor=__GLOBAL_EXECUTOR__)
+        session = None  # FuturesSession(executor=__GLOBAL_EXECUTOR__)
         spider_total_cnt = 1
         spider_success_cnt = 0
         new_tasks = []
@@ -617,7 +617,7 @@ class SpiderContentTask(SpiderTask):
     async def start(self, proxy):
         self.increase_try_cnt()
         (arg_chunks, proxy) = (*self.args, proxy)
-        session = None #FuturesSession(executor=__GLOBAL_EXECUTOR__)
+        session = None  # FuturesSession(executor=__GLOBAL_EXECUTOR__)
         spider_total_cnt = len(arg_chunks)
         spider_success_cnt = 0
         failed_arg_chunks = []
@@ -656,12 +656,13 @@ class SpiderContentTask(SpiderTask):
                     "网络请求连接错误: content_url:{} error:{} proxy:{}".format(content_url, str(e), proxy))
             except Exception as e:
                 logger.exception(
-                    "consumer {} - task {}: SpiderContentTask -- {} 其他异常Error:".format(self.consumer_id,
-                                                                                   self.id, e,
-                                                                                   content_url))
-            if t is None or c is None:
-                (t, c) = await self.try_m_site_safe(session, spider_name, content_url, book_url,
-                                                    proxy)
+                    "consumer {} - task {}: SpiderContentTask -- {} 其他异常Error:".format(
+                        self.consumer_id,
+                        self.id, e,
+                        content_url))
+            # if t is None or c is None:
+            #     (t, c) = await self.try_m_site_safe(session, spider_name, content_url, book_url,
+            #                                         proxy)
             if t is None or c is None:
                 # 代理问题切换爬虫重试
                 logger.warning("consumer {} - task {}: Content爬虫执行错误，换proxy重试，重新放入queue".format(
@@ -739,6 +740,7 @@ class SpiderContentTask(SpiderTask):
         c = None
         try_num = 1
         last_exception = None
+        resp = None
         while try_num <= 2 and (t is None or c is None):
             try:
                 resp = await self.request_url_async(session, content_url, proxy,
@@ -762,13 +764,17 @@ class SpiderContentTask(SpiderTask):
                 continue
 
             try:
+                logger.warning("consumer {} step1".format(self.consumer_id))
                 t, c = await SpiderTask.loop.run_in_executor(__GLOBAL_PROCESS_EXECUTOR__,
                                                              __spider_list__[
                                                                  spider_name].spider_parse_content,
-                                                             book_url, content_url, resp.content)
+                                                             book_url, content_url,
+                                                             resp.content.decode('gbk'))
+                logger.warning("consumer {} step2".format(self.consumer_id))
                 # t, c = __spider_list__[spider_name].spider_parse_content(book_url, content_url,
                 #                                                          resp.content)
             except Exception as e:
+                logger.warning("consumer {} step3".format(self.consumer_id))
                 # logger.error(
                 #     "consumer {} - task {}:解析网页异常 content:{}".format(self.consumer_id, self.id,
                 #                                                      resp.content.decode("utf8")))
@@ -776,8 +782,15 @@ class SpiderContentTask(SpiderTask):
                 last_exception = e
                 continue
 
-        if t is None or c is None:
-            raise last_exception
+        if not t or not c:
+            if last_exception:
+                raise last_exception
+            else:
+                text = ""
+                if resp:
+                    text = resp.text
+                raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
+
         logger.debug(
             "consumer {} - task {} : start_spider_content -- "
             "Result: 爬到标题：{}".format(self.consumer_id, self.id, t))
@@ -792,6 +805,7 @@ class SpiderContentTask(SpiderTask):
         c = None
         try_num = 1
         last_exception = None
+        resp = None
         while try_num <= 2 and (t is None or c is None):
             try:
                 content_url = content_url.replace('www', 'm', 1)
@@ -830,8 +844,14 @@ class SpiderContentTask(SpiderTask):
                 last_exception = e
                 continue
 
-        if t is None or c is None:
-            raise last_exception
+        if not t or not c:
+            if last_exception:
+                raise last_exception
+            else:
+                text = ""
+                if resp:
+                    text = resp.text
+                raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
         logger.debug(
             "consumer {} - task {} : start_spider_content from m site -- "
             "Result: 爬到标题：{}".format(self.consumer_id, self.id, t))
@@ -843,7 +863,8 @@ class SpiderContentTask(SpiderTask):
 
     async def try_m_site_safe(self, session, spider_name, content_url, book_url, proxy):
         try:
-            return await self.spider_content_m(session, spider_name, content_url, book_url, proxy)
+            res = await self.spider_content_m(session, spider_name, content_url, book_url, proxy)
+            return res
         except requests.exceptions.RequestException as e:
             logger.info(
                 "网络请求连接错误: content_url:{} error:{} proxy:{}".format(content_url, str(e), proxy))
@@ -1085,7 +1106,7 @@ async def producer(task_q, query_list, loop, executor, only_detail=False):
 
 
 async def main(loop, query_list, parallel=100, only_detail=False):
-    proxy_list_pool =  proxy_list.get_proxy_pool(parallel)
+    proxy_list_pool = proxy_list.get_proxy_pool(parallel)
     # print(proxy_list)
     num_proxy = len(proxy_list_pool)
     # 创建指定大小的队列，这样的话生产者将会阻塞
@@ -1127,11 +1148,13 @@ async def main(loop, query_list, parallel=100, only_detail=False):
             proxy_switch_cnt = 0
             logger.warning("main loop: 刷新代理源成功")
         done, pending = await asyncio.wait(consumers_tasks.keys(), return_when=FIRST_COMPLETED,
-                                           timeout=1)
-        logger.debug(
-            "main loop: waiting status : done-{} pending-{} qsize-{} ".format(len(done),
-                                                                              len(pending),
-                                                                              task_q.qsize()))
+                                           timeout=3)
+        logger.warning(
+            "main loop: waiting status : done-{} pending-{} qsize-{} unfinished_tasks-{} ".format(
+                len(done),
+                len(pending),
+                task_q.qsize(),
+                task_q._unfinished_tasks))
         # 不论什么原因返回，全部启动
         if len(done) != 0:
             logger.warning(
@@ -1171,6 +1194,9 @@ async def main(loop, query_list, parallel=100, only_detail=False):
                     logger.critical(
                         "main loop: !!!!!!!未预测到的Exception退出customer{}:{}".format(consumer_id,
                                                                                  str(e.errors)))
+                except Exception as e:
+                    logger.exception("这他妈是啥!!!!!!!!!!!!!")
+                    logger.critical("这他妈是啥:{}".format(e))
 
     logger.info("main loop: queue is empty, exiting waiting queue")
 
@@ -1313,4 +1339,4 @@ if __name__ == '__main__':
     # local test
     start("./", "./OneDrive",
           query_list=[{"book_url": "http://www.aoyuge.com/12/12610/index.html"}],
-          progress=True, debug=True, parallel=10)
+          progress=True, show_info=True, debug=False, parallel=1000)

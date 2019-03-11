@@ -10,6 +10,8 @@ from argparse import RawTextHelpFormatter
 import json
 from urllib.parse import urlparse
 
+logger=logging.getLogger("spider-origin")
+
 
 # pip3 install requests numpy pyquery
 
@@ -183,17 +185,25 @@ def spider_content(content_url, book_url="", proxy={}):
 
 
 def spider_parse_content(book_url, content_url, content_html):
-    content_doc = pq(content_html)
-    content_title = content_doc(".article h1").text()
-    content = content_doc(".article #BookText").text()
-    return content_title, content
+    try:
+        content_doc = pq(content_html)
+        content_title = content_doc(".article h1").text()
+        content = content_doc(".article #BookText").text()
+        return content_title, content
+    except Exception as e:
+        logger.exception("parse exception content:{}".format(content_html))
+    return None,None
+
 
 def spider_parse_content_m(book_url, content_url, content_html):
-    content_doc = pq(content_html)
-    content_title = content_doc(".nr_title").text()
-    content = content_doc("#nr1").text()
-    return content_title, content
-
+    try:
+        content_doc = pq(content_html)
+        content_title = content_doc(".nr_title").text()
+        content = content_doc("#nr1").text()
+        return content_title, content
+    except Exception as e:
+        logger.exception("parse exception_m")
+    return None, None
 
 # 设置重试次数
 # from requests.adapters import HTTPAdapter
