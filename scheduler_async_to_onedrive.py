@@ -735,6 +735,7 @@ class SpiderContentTask(SpiderTask):
         c = None
         try_num = 1
         last_exception = None
+        resp = None
         while try_num <= 2 and (t is None or c is None):
             try:
                 resp = await self.request_url_async(session, content_url, proxy,
@@ -767,12 +768,15 @@ class SpiderContentTask(SpiderTask):
                 try_num = try_num + 1
                 last_exception = e
                 continue
-
-        if t is None or c is None:
-            if last_exception is not None:
+        # 返回''字符
+        if not t or not c:
+            if last_exception:
                 raise last_exception
             else:
-                raise Exception("神奇的异常")
+                text = ""
+                if resp:
+                    text = resp.text
+                raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
         logger.debug(
             "consumer {} - task {} : start_spider_content -- "
             "Result: 爬到标题：{}".format(self.consumer_id, self.id, t))
@@ -787,6 +791,7 @@ class SpiderContentTask(SpiderTask):
         c = None
         try_num = 1
         last_exception = None
+        resp = None
         while try_num <= 2 and (t is None or c is None):
             try:
                 content_url = content_url.replace('www', 'm', 1)
@@ -821,11 +826,14 @@ class SpiderContentTask(SpiderTask):
                 last_exception = e
                 continue
 
-        if t is None or c is None:
-            if last_exception is not None:
+        if not t or not c:
+            if last_exception:
                 raise last_exception
             else:
-                raise Exception("神奇的异常")
+                text = ""
+                if resp:
+                    text = resp.text
+                raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
         logger.debug(
             "consumer {} - task {} : start_spider_content from m site -- "
             "Result: 爬到标题：{}".format(self.consumer_id, self.id, t))
