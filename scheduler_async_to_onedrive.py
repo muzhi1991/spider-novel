@@ -642,6 +642,8 @@ class SpiderContentTask(SpiderTask):
             try:
                 (t, c) = await self.spider_content(session, spider_name, content_url, book_url,
                                                    proxy)
+            except requests.exceptions.RequestException as e:
+                logger.debug("网络请求连接错误: content_url:{} error:{}".format(content_url, str(e)))
             except Exception as e:
                 logger.exception(
                     "consumer {} - task {}: SpiderContentTask -- {} Error:".format(self.consumer_id,
@@ -832,6 +834,8 @@ class SpiderContentTask(SpiderTask):
     async def try_m_site_safe(self, session, spider_name, content_url, book_url, proxy):
         try:
             return await self.spider_content_m(session, spider_name, content_url, book_url, proxy)
+        except requests.exceptions.RequestException as e:
+            logger.debug("网络请求连接错误: content_url:{} error:{}".format(content_url, str(e)))
         except Exception as e:
             logger.exception("m站请求错误")
         return None, None
@@ -1114,7 +1118,9 @@ async def main(loop, query_list, parallel=100, only_detail=False):
         done, pending = await asyncio.wait(consumers_tasks.keys(), return_when=FIRST_COMPLETED,
                                            timeout=1)
         logger.debug(
-            "main loop: waiting status : done-{} pending-{} ".format(len(done), len(pending)))
+            "main loop: waiting status : done-{} pending-{} qsize-{} ".format(len(done),
+                                                                              len(pending),
+                                                                              task_q.qsize()))
         # 不论什么原因返回，全部启动
         if len(done) != 0:
             logger.warning(
@@ -1272,7 +1278,7 @@ def start(base_path, one_driver_path, query_list=None, parallel=100, start=0, en
             main(event_loop, query_list[start:end], parallel, only_spider_detail))
     except Exception as e:
         logger.exception()
-        logger.critical("event loop 发生了严重异常！！！！！"+str(e))
+        logger.critical("event loop 发生了严重异常！！！！！" + str(e))
     finally:
         event_loop.close()
 
