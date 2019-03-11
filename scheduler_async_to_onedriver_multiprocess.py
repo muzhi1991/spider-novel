@@ -648,9 +648,12 @@ class SpiderContentTask(SpiderTask):
             try:
                 (t, c) = await self.spider_content(session, spider_name, content_url, book_url,
                                                    proxy)
+            except (requests.exceptions.ChunkedEncodingError, requests.exceptions.ConnectTimeout,
+                    requests.exceptions.ProxyError) as e:
+                logger.debug("网络请求连接错误:" + str(e))
             except Exception as e:
                 logger.exception(
-                    "consumer {} - task {}: SpiderContentTask -- {} Error:".format(self.consumer_id,
+                    "consumer {} - task {}: SpiderContentTask -- {} 其他异常Error:".format(self.consumer_id,
                                                                                    self.id, e,
                                                                                    content_url))
             if t is None or c is None:
@@ -838,8 +841,11 @@ class SpiderContentTask(SpiderTask):
     async def try_m_site_safe(self, session, spider_name, content_url, book_url, proxy):
         try:
             return await self.spider_content_m(session, spider_name, content_url, book_url, proxy)
+        except (requests.exceptions.ChunkedEncodingError,requests.exceptions.ConnectTimeout,requests.exceptions.ProxyError) as e:
+            logger.debug("网络请求连接错误:"+str(e))
+            pass
         except Exception as e:
-            logger.exception("m站请求错误")
+            logger.exception("m站请求错误,其他异常")
         return None, None
 
     @staticmethod
