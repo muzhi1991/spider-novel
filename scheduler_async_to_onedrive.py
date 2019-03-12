@@ -746,8 +746,9 @@ class SpiderContentTask(SpiderTask):
                 continue
 
             if resp is None or not resp.ok:
-                error_info = "consumer {} - task {}:网络请求异常 url:{} status_code:{} content:{}".format(
-                    self.consumer_id, self.id, content_url, resp.status_code,
+                error_info = "consumer {} - task {}:网络请求异常 url:{} status_code:{} proxy:{} ua:{} content:{}".format(
+                    self.consumer_id, self.id, content_url, resp.status_code, proxy,
+                    session.headers.get("User-Agent"),
                     resp.content.decode("utf8"))
                 # logger.error(error_info)
                 try_num = try_num + 1
