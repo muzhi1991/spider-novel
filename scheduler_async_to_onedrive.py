@@ -161,7 +161,8 @@ class SpiderDetailTask(SpiderTask):
         self.increase_try_cnt()
         # self.kwargs.update({"proxy": proxy})
         (book_url, spider_name, proxy) = (*self.args, proxy)
-        session = None  # FuturesSession(executor=__GLOBAL_EXECUTOR__)
+        session = requests.session()  # FuturesSession(executor=__GLOBAL_EXECUTOR__)
+        session.headers.update(spider_common_info.__common_headers__)
         spider_total_cnt = 1
         spider_success_cnt = 0
         new_tasks = []
@@ -193,8 +194,8 @@ class SpiderDetailTask(SpiderTask):
             try:
                 book_info = await self.spider_detail(session, book_url, spider_name, proxy)
                 spider_success_cnt += 1
-            except requests.exceptions.RequestException as e:
-                logger.debug(
+            except requests.RequestException as e:
+                logger.info(
                     "网络请求连接错误: content_url:{} error:{} proxy:{}".format(book_url, str(e), proxy))
             except Exception as e:
                 logger.exception(
@@ -277,13 +278,9 @@ class SpiderDetailTask(SpiderTask):
     def request_url_async(session, url, proxy):
         book_headers = {**(spider_common_info.__common_headers__),
                         'If-None-Match': str(int(time.time()))}
-        # session=requests.session()
-        # session.proxies.update(proxy)
-        # session.headers.update(book_headers)
-        get_request = partial(requests.get, headers=book_headers, proxies=proxy, timeout=15)
+        get_request = partial(session.get, headers=book_headers, proxies=proxy, timeout=15)
         f = SpiderTask.loop.run_in_executor(__GLOBAL_EXECUTOR__,
                                             get_request, url)
-        # f = session.get(url, headers=book_headers, proxies=proxy, timeout=30)
         return f
 
     async def spider_detail(self, session, book_url, spider_name, proxy):
@@ -510,7 +507,7 @@ class SpiderDetailTask(SpiderTask):
         :param book_url:
         :return:
         """
-        chunk_size = 3
+        chunk_size = 30
         chunks = [chapter_list[x:x + chunk_size]
                   for x in range(0, len(chapter_list), chunk_size)]
         chunk_tasks = []
@@ -611,7 +608,8 @@ class SpiderContentTask(SpiderTask):
     async def start(self, proxy):
         self.increase_try_cnt()
         (arg_chunks, proxy) = (*self.args, proxy)
-        session = None  # FuturesSession(executor=__GLOBAL_EXECUTOR__)
+        session = requests.session()  # FuturesSession(executor=__GLOBAL_EXECUTOR__)
+        session.headers.update(spider_common_info.__common_headers__)
         spider_total_cnt = len(arg_chunks)
         spider_success_cnt = 0
         failed_arg_chunks = []
@@ -650,14 +648,13 @@ class SpiderContentTask(SpiderTask):
                     "网络请求连接错误: content_url:{} error:{} proxy:{}".format(content_url, str(e), proxy))
             except Exception as e:
                 logger.exception(
-                    "consumer {} - task {}: SpiderContentTask -- {} Error:".format(self.consumer_id,
-                                                                                   self.id, e,
-                                                                                   content_url))
-
+                    "consumer {} - task {}: SpiderContentTask -- {} 其他异常Error:".format(
+                        self.consumer_id,
+                        self.id, e,
+                        content_url))
             if t is None or c is None:
                 (t, c) = await self.try_m_site_safe(session, spider_name, content_url, book_url,
                                                     proxy)
-
             if t is None or c is None:
                 # 代理问题切换爬虫重试
                 logger.warning("consumer {} - task {}: Content爬虫执行错误，换proxy重试，重新放入queue".format(
@@ -714,7 +711,7 @@ class SpiderContentTask(SpiderTask):
         book_headers = {**spider_common_info.__common_headers__, **headers,
                         'If-None-Match': str(int(time.time()))}
         # f = session.get(url, headers=book_headers, proxies=proxy, timeout=15)
-        get_request = partial(requests.get, headers=book_headers, proxies=proxy, timeout=15)
+        get_request = partial(session.get, headers=book_headers, proxies=proxy, timeout=15)
         f = SpiderTask.loop.run_in_executor(__GLOBAL_EXECUTOR__,
                                             get_request, url)
         return f
@@ -723,7 +720,7 @@ class SpiderContentTask(SpiderTask):
     def request_url_async_m(session, url, proxy, headers={}):
         book_headers = {**spider_common_info.__common_headers_m__, **headers,
                         'If-None-Match': str(int(time.time()))}
-        get_request = partial(requests.get, headers=book_headers, proxies=proxy, timeout=15)
+        get_request = partial(session.get, headers=book_headers, proxies=proxy, timeout=15)
         f = SpiderTask.loop.run_in_executor(__GLOBAL_EXECUTOR__,
                                             get_request, url)
 
@@ -850,7 +847,7 @@ class SpiderContentTask(SpiderTask):
             logger.info(
                 "网络请求连接错误: content_url:{} error:{} proxy:{}".format(content_url, str(e), proxy))
         except Exception as e:
-            logger.exception("m站请求错误")
+            logger.exception("m站请求错误,其他异常")
         return None, None
 
     @staticmethod
@@ -1129,11 +1126,13 @@ async def main(loop, query_list, parallel=100, only_detail=False):
             proxy_switch_cnt = 0
             logger.warning("main loop: 刷新代理源成功")
         done, pending = await asyncio.wait(consumers_tasks.keys(), return_when=FIRST_COMPLETED,
-                                           timeout=1)
-        logger.debug(
-            "main loop: waiting status : done-{} pending-{} qsize-{} ".format(len(done),
-                                                                              len(pending),
-                                                                              task_q.qsize()))
+                                           timeout=3)
+        logger.warning(
+            "main loop: waiting status : done-{} pending-{} qsize-{} unfinished_tasks-{} ".format(
+                len(done),
+                len(pending),
+                task_q.qsize(),
+                task_q._unfinished_tasks))
         # 不论什么原因返回，全部启动
         if len(done) != 0:
             logger.warning(
@@ -1173,6 +1172,9 @@ async def main(loop, query_list, parallel=100, only_detail=False):
                     logger.critical(
                         "main loop: !!!!!!!未预测到的Exception退出customer{}:{}".format(consumer_id,
                                                                                  str(e.errors)))
+                except Exception as e:
+                    logger.exception("这他妈是啥!!!!!!!!!!!!!")
+                    logger.critical("这他妈是啥:{}".format(e))
 
     logger.info("main loop: queue is empty, exiting waiting queue")
 

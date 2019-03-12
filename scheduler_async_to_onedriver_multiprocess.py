@@ -26,8 +26,8 @@ import json
 import random
 import hashlib
 import requests
-import tarfile
 from functools import partial
+import tarfile
 
 # for db
 
@@ -160,7 +160,8 @@ class SpiderDetailTask(SpiderTask):
         self.increase_try_cnt()
         # self.kwargs.update({"proxy": proxy})
         (book_url, spider_name, proxy) = (*self.args, proxy)
-        session = None  # FuturesSession(executor=__GLOBAL_EXECUTOR__)
+        session = requests.session()  # FuturesSession(executor=__GLOBAL_EXECUTOR__)
+        session.headers.update(spider_common_info.__common_headers__)
         spider_total_cnt = 1
         spider_success_cnt = 0
         new_tasks = []
@@ -185,12 +186,6 @@ class SpiderDetailTask(SpiderTask):
             logger.info("consumer {} - task {}:".format(self.consumer_id, self.id)
                         + " SpiderDetailTask --book_url:{} 已经有了bookdetail，跳过爬取"
                         .format(book_url))
-            # book_info = await SpiderTask.loop.run_in_executor(__GLOBAL_PROCESS_EXECUTOR__,
-            #                                                   BookCatalogManager.load_manifest_detail,
-            #                                                   os.path.join(
-            #                                                       BookCatalogManager.store_path,
-            #                                                       BookCatalogManager.urls[
-            #                                                           book_url]))
             book_info = BookCatalogManager.load_manifest_detail_by_url(book_url)
         # 数据爬取
 
@@ -234,10 +229,6 @@ class SpiderDetailTask(SpiderTask):
         book_dir_path = None
         try:
             book_dir_path = self.get_book_dir_path(book_info)
-            # chapter_list = await SpiderTask.loop.run_in_executor(__GLOBAL_PROCESS_EXECUTOR__,
-            #                                                      SpiderDetailTask.get_need_spider_chapter,
-            #                                                      book_dir_path,
-            #                                                      book_info["chapter_list"])
             chapter_list = self.get_need_spider_chapter(book_dir_path,
                                                         book_info["chapter_list"])
         except Exception as e:
@@ -286,13 +277,9 @@ class SpiderDetailTask(SpiderTask):
     def request_url_async(session, url, proxy):
         book_headers = {**(spider_common_info.__common_headers__),
                         'If-None-Match': str(int(time.time()))}
-        # session=requests.session()
-        # session.proxies.update(proxy)
-        # session.headers.update(book_headers)
-        get_request = partial(requests.get, headers=book_headers, proxies=proxy, timeout=15)
+        get_request = partial(session.get, headers=book_headers, proxies=proxy, timeout=15)
         f = SpiderTask.loop.run_in_executor(__GLOBAL_EXECUTOR__,
                                             get_request, url)
-        # f = session.get(url, headers=book_headers, proxies=proxy, timeout=30)
         return f
 
     async def spider_detail(self, session, book_url, spider_name, proxy):
@@ -329,7 +316,10 @@ class SpiderDetailTask(SpiderTask):
                 last_exception = e
                 continue
         if infos is None:
-            raise last_exception
+            if last_exception is not None:
+                raise last_exception
+            else:
+                raise Exception("神奇的异常")
         return infos
 
     @staticmethod
@@ -516,7 +506,7 @@ class SpiderDetailTask(SpiderTask):
         :param book_url:
         :return:
         """
-        chunk_size = 3
+        chunk_size = 30
         chunks = [chapter_list[x:x + chunk_size]
                   for x in range(0, len(chapter_list), chunk_size)]
         chunk_tasks = []
@@ -617,7 +607,8 @@ class SpiderContentTask(SpiderTask):
     async def start(self, proxy):
         self.increase_try_cnt()
         (arg_chunks, proxy) = (*self.args, proxy)
-        session = None  # FuturesSession(executor=__GLOBAL_EXECUTOR__)
+        session = requests.session()  # FuturesSession(executor=__GLOBAL_EXECUTOR__)
+        session.headers.update(spider_common_info.__common_headers__)
         spider_total_cnt = len(arg_chunks)
         spider_success_cnt = 0
         failed_arg_chunks = []
@@ -719,7 +710,7 @@ class SpiderContentTask(SpiderTask):
         book_headers = {**spider_common_info.__common_headers__, **headers,
                         'If-None-Match': str(int(time.time()))}
         # f = session.get(url, headers=book_headers, proxies=proxy, timeout=15)
-        get_request = partial(requests.get, headers=book_headers, proxies=proxy, timeout=15)
+        get_request = partial(session.get, headers=book_headers, proxies=proxy, timeout=15)
         f = SpiderTask.loop.run_in_executor(__GLOBAL_EXECUTOR__,
                                             get_request, url)
         return f
@@ -728,7 +719,7 @@ class SpiderContentTask(SpiderTask):
     def request_url_async_m(session, url, proxy, headers={}):
         book_headers = {**spider_common_info.__common_headers_m__, **headers,
                         'If-None-Match': str(int(time.time()))}
-        get_request = partial(requests.get, headers=book_headers, proxies=proxy, timeout=15)
+        get_request = partial(session.get, headers=book_headers, proxies=proxy, timeout=15)
         f = SpiderTask.loop.run_in_executor(__GLOBAL_EXECUTOR__,
                                             get_request, url)
 
@@ -781,7 +772,7 @@ class SpiderContentTask(SpiderTask):
                 try_num = try_num + 1
                 last_exception = e
                 continue
-
+        # 返回''字符
         if not t or not c:
             if last_exception:
                 raise last_exception
@@ -790,7 +781,6 @@ class SpiderContentTask(SpiderTask):
                 if resp:
                     text = resp.text
                 raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
-
         logger.debug(
             "consumer {} - task {} : start_spider_content -- "
             "Result: 爬到标题：{}".format(self.consumer_id, self.id, t))
@@ -863,8 +853,7 @@ class SpiderContentTask(SpiderTask):
 
     async def try_m_site_safe(self, session, spider_name, content_url, book_url, proxy):
         try:
-            res = await self.spider_content_m(session, spider_name, content_url, book_url, proxy)
-            return res
+            return await self.spider_content_m(session, spider_name, content_url, book_url, proxy)
         except requests.exceptions.RequestException as e:
             logger.info(
                 "网络请求连接错误: content_url:{} error:{} proxy:{}".format(content_url, str(e), proxy))
@@ -1314,7 +1303,8 @@ def start(base_path, one_driver_path, query_list=None, parallel=100, start=0, en
         event_loop.run_until_complete(
             main(event_loop, query_list[start:end], parallel, only_spider_detail))
     except Exception as e:
-        logger.critical("event loop 发生了严重异常！！！！！")
+        logger.exception()
+        logger.critical("event loop 发生了严重异常！！！！！" + str(e))
     finally:
         event_loop.close()
 
