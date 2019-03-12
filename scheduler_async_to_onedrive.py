@@ -745,11 +745,14 @@ class SpiderContentTask(SpiderTask):
                 last_exception = e
                 continue
 
-            if resp is None or not resp.ok:
+            if resp is None or not resp.ok or resp.content is None or len(resp.content) == 0:
+                content = ""
+                if resp.content:
+                    content = resp.content.decode("utf8")
                 error_info = "consumer {} - task {}:网络请求异常 url:{} status_code:{} proxy:{} ua:{} content:{}".format(
                     self.consumer_id, self.id, content_url, resp.status_code, proxy,
                     session.headers.get("User-Agent"),
-                    resp.content.decode("utf8"))
+                    content)
                 # logger.error(error_info)
                 try_num = try_num + 1
                 last_exception = requests.RequestException(error_info)
