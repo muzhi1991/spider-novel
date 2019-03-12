@@ -162,7 +162,7 @@ class SpiderDetailTask(SpiderTask):
         # self.kwargs.update({"proxy": proxy})
         (book_url, spider_name, proxy) = (*self.args, proxy)
         session = requests.session()  # FuturesSession(executor=__GLOBAL_EXECUTOR__)
-        session.headers.update(spider_common_info.__common_headers__)
+        session.headers.update(spider_common_info.get_session_common_headers())
         spider_total_cnt = 1
         spider_success_cnt = 0
         new_tasks = []
@@ -276,9 +276,9 @@ class SpiderDetailTask(SpiderTask):
 
     @staticmethod
     def request_url_async(session, url, proxy):
-        book_headers = {**(spider_common_info.__common_headers__),
-                        'If-None-Match': str(int(time.time()))}
-        get_request = partial(session.get, headers=book_headers, proxies=proxy, timeout=15)
+        extra_headers = {'If-None-Match': str(int(time.time()))}
+        session.headers.update(extra_headers)
+        get_request = partial(session.get, proxies=proxy, timeout=15)
         f = SpiderTask.loop.run_in_executor(__GLOBAL_EXECUTOR__,
                                             get_request, url)
         return f
@@ -609,7 +609,7 @@ class SpiderContentTask(SpiderTask):
         self.increase_try_cnt()
         (arg_chunks, proxy) = (*self.args, proxy)
         session = requests.session()  # FuturesSession(executor=__GLOBAL_EXECUTOR__)
-        session.headers.update(spider_common_info.__common_headers__)
+        session.headers.update(spider_common_info.get_session_common_headers())
         spider_total_cnt = len(arg_chunks)
         spider_success_cnt = 0
         failed_arg_chunks = []
@@ -692,7 +692,7 @@ class SpiderContentTask(SpiderTask):
                 #     failed_arg_chunks.append(task_arg)
 
             # todo 随机睡眠，在生成task时分配这个值？还是在这直接诶搞
-            sleep_time = random.randint(2, 6)
+            sleep_time = random.randint(4, 8)
             logger.debug(
                 "consumer {} - task {}:睡眠了{}s".format(self.consumer_id, self.id, sleep_time))
             await asyncio.sleep(sleep_time)
@@ -708,19 +708,18 @@ class SpiderContentTask(SpiderTask):
     @staticmethod
     def request_url_async(session, url, proxy, headers={}):
 
-        book_headers = {**spider_common_info.__common_headers__, **headers,
-                        'If-None-Match': str(int(time.time()))}
-        # f = session.get(url, headers=book_headers, proxies=proxy, timeout=15)
-        get_request = partial(session.get, headers=book_headers, proxies=proxy, timeout=15)
+        extra_headers = {**headers, 'If-None-Match': str(int(time.time()))}
+        session.headers.update(extra_headers)
+        get_request = partial(session.get, proxies=proxy, timeout=15)
         f = SpiderTask.loop.run_in_executor(__GLOBAL_EXECUTOR__,
                                             get_request, url)
         return f
 
     @staticmethod
     def request_url_async_m(session, url, proxy, headers={}):
-        book_headers = {**spider_common_info.__common_headers_m__, **headers,
-                        'If-None-Match': str(int(time.time()))}
-        get_request = partial(session.get, headers=book_headers, proxies=proxy, timeout=15)
+        extra_headers = {**headers, 'If-None-Match': str(int(time.time()))}
+        session.headers.update(extra_headers)
+        get_request = partial(session.get, proxies=proxy, timeout=15)
         f = SpiderTask.loop.run_in_executor(__GLOBAL_EXECUTOR__,
                                             get_request, url)
 
