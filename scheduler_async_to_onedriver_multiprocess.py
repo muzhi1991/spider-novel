@@ -744,10 +744,14 @@ class SpiderContentTask(SpiderTask):
                 last_exception = e
                 continue
 
-            if resp is None or not resp.ok:
-                error_info = "consumer {} - task {}:网络请求异常 url:{} status_code:{} content:{}".format(
-                    self.consumer_id, self.id, content_url, resp.status_code,
-                    resp.content.decode("utf8"))
+            if resp is None or not resp.ok or resp.content is None or len(resp.content) == 0:
+                content = ""
+                if resp.content:
+                    content = resp.content.decode("utf8")
+                error_info = "consumer {} - task {}:网络请求异常 url:{} status_code:{} proxy:{} ua:{} content:{}".format(
+                    self.consumer_id, self.id, content_url, resp.status_code, proxy,
+                    session.headers.get("User-Agent"),
+                    content)
                 # logger.error(error_info)
                 try_num = try_num + 1
                 last_exception = requests.RequestException(error_info)
@@ -1132,7 +1136,7 @@ async def main(loop, query_list, parallel=100, only_detail=False):
     while not task_q.empty() or task_q._unfinished_tasks != 0:
         if proxy_switch_cnt > 1000:
             logger.warning("main loop: 大量代理切换共{}次，刷新代理源".format(proxy_switch_cnt))
-            proxy_list.refresh_proxy_pool(proxy_list_pool, force=True)
+            # proxy_list.refresh_proxy_pool(proxy_list_pool, force=True)
             proxy_switch_cnt = 0
             logger.warning("main loop: 刷新代理源成功")
         done, pending = await asyncio.wait(consumers_tasks.keys(), return_when=FIRST_COMPLETED,
