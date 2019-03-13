@@ -797,10 +797,21 @@ class SpiderContentTask(SpiderTask):
                     location_url = __spider_list__[spider_name].spider_parse_location(book_url,
                                                                                       content_url,
                                                                                       text)
-                if location_url:
-                    raise ReLocationException("解析到调跳转", location_url, 5)
-                else:
-                    raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
+                    if location_url:
+                        try:
+                            await asyncio.sleep(3)
+                            resp = await self.request_url_async(session, location_url, proxy,
+                                                                {"Referer": book_url,
+                                                                 "Cache-Control": "max-age=0"})
+                            t, c = __spider_list__[spider_name].spider_parse_content(book_url,
+                                                                                     content_url,
+                                                                                     resp.content)
+                        except Exception as e:
+                            last_exception = e
+                        # if location_url:
+                        #     raise ReLocationException("解析到调跳转", location_url, 5)
+                        else:
+                            raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
 
         logger.debug(
             "consumer {} - task {} : start_spider_content -- "
