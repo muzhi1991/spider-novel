@@ -23,6 +23,8 @@ def load_proxy_file():
 
 
 def convert_to_request_proxy(proxy):
+    if proxy is None or proxy == {}:
+        return {}
     return {proxy['type']: proxy['host'] + ":" + str(proxy['port'])}
 
 
@@ -83,13 +85,21 @@ def get_proxy_pool(num):
     return res
 
 
+# def get_proxy_avaliable():
+#     try:
+#         proxy = get_proxy_pool(1)[0]
+#         return proxy
+#     except Exception as e:
+#         logging.exception("获取代理异常!!!")
+#     return {}
 def get_proxy_avaliable():
-    try:
-        proxy = get_proxy_pool(1)[0]
-        return proxy
-    except Exception as e:
-        logging.exception("获取代理异常!!!")
-    return {}
+    global proxy_list_iter
+    res = next(proxy_list_iter, None)
+    if res is None:
+        proxy_list_iter = filter(lambda p: p['anonymity'] == 'high_anonymous',
+                                 load_proxy_file())
+        res = next(proxy_list_iter, {})  # 默认给个空
+    return convert_to_request_proxy(res)
 
 
 def refresh_proxy_pool(pool, index=-1, force=False):
