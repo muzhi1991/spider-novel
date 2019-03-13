@@ -48,6 +48,12 @@ executor = ThreadPoolExecutor(max_workers=50)
 proxy_list_iter = filter(lambda p: p['anonymity'] == 'high_anonymous', load_proxy_file())
 
 
+def init():
+    global proxy_list_iter
+    pl = [x for x in executor.map(filter_proxy, proxy_list_iter) if x is not None]
+    proxy_list_iter = iter(pl)
+
+
 # proxy_list_iter=iter(load_proxy_file())
 def get_proxy_pool(num):
     global proxy_list_iter
@@ -58,20 +64,32 @@ def get_proxy_pool(num):
         check_list = list(islice(proxy_list_iter, 0, num))
         pl = [x for x in executor.map(filter_proxy, check_list) if x is not None]
         if len(check_list) < num:
-            proxy_list_iter = load_proxy_file()
+            proxy_list_iter = filter(lambda p: p['anonymity'] == 'high_anonymous',
+                                     load_proxy_file())
             level += 1
         res.extend(pl)
         num = num - len(pl)
     # linear search, 只有一个的时候线性搜索
-    if num > 0 and level < 3:
+    while num > 0 and level < 3:
         logging.info("linear search:{}".format(num))
-        res.extend(map(convert_to_request_proxy,
-                       islice(filter(lambda p: filter_proxy(p) is not None, proxy_list_iter), num)))
+        check_list = list(
+            islice(filter(lambda p: filter_proxy(p) is not None, proxy_list_iter), num))
+        if len(check_list) < num:
+            proxy_list_iter = filter(lambda p: p['anonymity'] == 'high_anonymous',
+                                     load_proxy_file())
+            level += 1
+        res.extend(check_list)
+        num = num - len(check_list)
     return res
 
 
 def get_proxy_avaliable():
-    return get_proxy_pool(1)[0]
+    try:
+        proxy = get_proxy_pool(1)[0]
+        return proxy
+    except Exception as e:
+        logging.exception("获取代理异常!!!")
+    return {}
 
 
 def refresh_proxy_pool(pool, index=-1, force=False):
@@ -85,3 +103,8 @@ def refresh_proxy_pool(pool, index=-1, force=False):
         pool.extend(p2)
     else:
         pool[index] = get_proxy_avaliable()
+
+
+if __name__ == '__main__':
+    for i in range(10000):
+        print(i, get_proxy_avaliable())
