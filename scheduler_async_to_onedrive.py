@@ -807,11 +807,12 @@ class SpiderContentTask(SpiderTask):
                                                                                      content_url,
                                                                                      resp.content)
                         except Exception as e:
+                            raise ReLocationException("解析到调跳转", location_url, 5)
                             last_exception = e
                         # if location_url:
                         #     raise ReLocationException("解析到调跳转", location_url, 5)
-                        else:
-                            raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
+                    else:
+                        raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
 
         logger.debug(
             "consumer {} - task {} : start_spider_content -- "
