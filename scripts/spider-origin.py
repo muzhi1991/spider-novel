@@ -197,7 +197,7 @@ def spider_parse_content(book_url, content_url, content_html):
 
 def spider_parse_location(book_url, content_url, content_html):
     try:
-        return "http://www.aoyuge.com"+pq("\n".join(input.split("\n")[1:]))('script').text().split("\"")[-2]
+        return "http://www.aoyuge.com"+pq("\n".join(filter(lambda l:"DOCTYPE" not in l,content_html.split("\n"))))('script').text().split("\"")[-2]
     except:
         return ''
 
