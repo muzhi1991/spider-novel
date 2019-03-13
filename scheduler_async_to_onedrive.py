@@ -749,7 +749,7 @@ class SpiderContentTask(SpiderTask):
         try_num = 1
         last_exception = None
         resp = None
-        while try_num <= 2 and (t is None or c is None):
+        while try_num <= 1 and (t is None or c is None):
             try:
                 resp = await self.request_url_async(session, content_url, proxy,
                                                     {"Referer": book_url,
@@ -806,6 +806,8 @@ class SpiderContentTask(SpiderTask):
                             t, c = __spider_list__[spider_name].spider_parse_content(book_url,
                                                                                      content_url,
                                                                                      resp.content)
+                            if not t or not c:
+                                raise Exception("not right")
                         except Exception as e:
                             raise ReLocationException("解析到调跳转", location_url, 5)
                             last_exception = e
