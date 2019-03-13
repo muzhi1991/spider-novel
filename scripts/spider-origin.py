@@ -10,7 +10,7 @@ from argparse import RawTextHelpFormatter
 import json
 from urllib.parse import urlparse
 
-logger=logging.getLogger("spider-origin")
+logger = logging.getLogger("spider-origin")
 
 
 # pip3 install requests numpy pyquery
@@ -192,7 +192,14 @@ def spider_parse_content(book_url, content_url, content_html):
         return content_title, content
     except Exception as e:
         logger.exception("parse exception content:{}".format(content_html))
-    return None,None
+    return None, None
+
+
+def spider_parse_location(book_url, content_url, content_html):
+    try:
+        return "http://www.aoyuge.com"+pq(content_html)('script').text().split("\"")[-2]
+    except:
+        return ''
 
 
 def spider_parse_content_m(book_url, content_url, content_html):
@@ -204,6 +211,7 @@ def spider_parse_content_m(book_url, content_url, content_html):
     except Exception as e:
         logger.exception("parse exception_m")
     return None, None
+
 
 # 设置重试次数
 # from requests.adapters import HTTPAdapter

@@ -126,6 +126,11 @@ class ProxyAvailableException(MyException):
         super().__init__(message, Exception("need to proxy switch"), *args, **kwargs)
 
 
+class ReLocationException(MyException):
+    def __init__(self, message, *args, **kwargs):
+        super().__init__(message, Exception("need to proxy switch"), *args, **kwargs)
+
+
 class SpiderTask:
     loop = None
     executor = None
@@ -640,26 +645,38 @@ class SpiderContentTask(SpiderTask):
             #                                              self.consumer_id, self.id))
             t = None
             c = None
+            new_url = None
             try:
                 (t, c) = await self.spider_content(session, spider_name, content_url, book_url,
                                                    proxy)
             except requests.exceptions.RequestException as e:
                 logger.info(
                     "网络请求连接错误: content_url:{} error:{} proxy:{}".format(content_url, str(e), proxy))
+            except ReLocationException as e:
+                (new_url, wait_time) = e.args
+                logger.info(
+                    "网络请求重定向: new_content_url:{} proxy:{}".format(new_url, proxy))
+
             except Exception as e:
                 logger.exception(
                     "consumer {} - task {}: SpiderContentTask -- {} 其他异常Error:".format(
                         self.consumer_id,
                         self.id, e,
                         content_url))
-            if t is None or c is None:
-                (t, c) = await self.try_m_site_safe(session, spider_name, content_url, book_url,
-                                                    proxy)
+
+            # if t is None or c is None:
+            #     (t, c) = await self.try_m_site_safe(session, spider_name, content_url, book_url,
+            #                                         proxy)
             if t is None or c is None:
                 # 代理问题切换爬虫重试
-                logger.warning("consumer {} - task {}: Content爬虫执行错误，换proxy重试，重新放入queue".format(
-                    self.consumer_id, self.id))
-                failed_arg_chunks.append(task_arg)
+                if new_url is None:
+                    logger.warning("consumer {} - task {}: Content爬虫执行错误，换proxy重试，重新放入queue".format(
+                        self.consumer_id, self.id))
+                    failed_arg_chunks.append(task_arg)
+                else:
+                    spider_success_cnt += 1
+                    failed_arg_chunks.append(
+                        (book_dir_path, spider_name, chapter_id, chapter_title, new_url, book_url))
             else:
                 spider_success_cnt += 1
                 # 提交内容
@@ -692,7 +709,7 @@ class SpiderContentTask(SpiderTask):
                 #     failed_arg_chunks.append(task_arg)
 
             # todo 随机睡眠，在生成task时分配这个值？还是在这直接诶搞
-            sleep_time = random.randint(4, 8)
+            sleep_time = random.randint(40, 80)
             logger.debug(
                 "consumer {} - task {}:睡眠了{}s".format(self.consumer_id, self.id, sleep_time))
             await asyncio.sleep(sleep_time)
@@ -774,9 +791,17 @@ class SpiderContentTask(SpiderTask):
                 raise last_exception
             else:
                 text = ""
+                location_url = ""
                 if resp:
                     text = resp.text
-                raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
+                    location_url = __spider_list__[spider_name].spider_parse_location(book_url,
+                                                                                      content_url,
+                                                                                      text)
+                if location_url:
+                    raise ReLocationException("解析到调跳转", location_url, 5)
+                else:
+                    raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
+
         logger.debug(
             "consumer {} - task {} : start_spider_content -- "
             "Result: 爬到标题：{}".format(self.consumer_id, self.id, t))
@@ -833,7 +858,8 @@ class SpiderContentTask(SpiderTask):
                 text = ""
                 if resp:
                     text = resp.text
-                raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
+                    raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
+
         logger.debug(
             "consumer {} - task {} : start_spider_content from m site -- "
             "Result: 爬到标题：{}".format(self.consumer_id, self.id, t))
@@ -1125,7 +1151,7 @@ async def main(loop, query_list, parallel=100, only_detail=False):
     while not task_q.empty() or task_q._unfinished_tasks != 0:
         if proxy_switch_cnt > 1000:
             logger.warning("main loop: 大量代理切换共{}次，刷新代理源".format(proxy_switch_cnt))
-            proxy_list.refresh_proxy_pool(proxy_list_pool, force=True)
+            # proxy_list.refresh_proxy_pool(proxy_list_pool, force=True)
             proxy_switch_cnt = 0
             logger.warning("main loop: 刷新代理源成功")
         done, pending = await asyncio.wait(consumers_tasks.keys(), return_when=FIRST_COMPLETED,
@@ -1149,12 +1175,14 @@ async def main(loop, query_list, parallel=100, only_detail=False):
                     logger.warning("main loop: customer {}正常退出，未重启，信息：{}"
                                    .format(consumer_id, res))
                 except ProxyAvailableException as e:
-                    logger.debug("!!!!state1:{}".format(e.args))
+                    logger.warning("main loop: !!!!state1:{}".format(e.args))
                     proxy_switch_cnt += 1
                     (error_cnt, total_cnt) = e.args
                     error_task_unique += error_cnt
                     total_task_unique += total_cnt
+                    logger.warning("main loop: !!!!state2")
                     new_proxy = proxy_list.get_proxy_avaliable()
+                    logger.warning("main loop: !!!!state3")
                     new_consumer = consumer(consumer_id, task_q, new_proxy)
                     new_consumer_task = loop.create_task(new_consumer)
                     logger.warning(
@@ -1318,7 +1346,7 @@ if __name__ == '__main__':
     # _main()
     # spider
     # start("./", "/root/OneDrive", progress=True, show_info=False, parallel=1000)
-    # local test
+    # local testcheck need to restart
     start("./", "./OneDrive",
           query_list=[{"book_url": "http://www.aoyuge.com/12/12610/index.html"}],
           progress=True, show_info=False, parallel=100)
