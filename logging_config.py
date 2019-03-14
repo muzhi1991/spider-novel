@@ -71,7 +71,7 @@ def configure_root_logger(log_path):
                 # 'stream': 'ext://sys.stdout' # 默认输出到stderr
             },
             'file': {  # 保留最近3个天的错误信息到文件
-                'level': 'WARN',  # 文件防止太大，输出错误
+                'level': 'INFO',  # 文件防止太大，输出错误
                 'class': 'logging.handlers.TimedRotatingFileHandler',
                 'formatter': 'simple',
                 'when': 'D',  # 天
@@ -99,7 +99,7 @@ def configure_root_logger(log_path):
                 'propagate': False  # 如果为True（默认），会向上到root的logger都执行
             },
             'online': {  # 这里没有用 logging.getLogger("online") 获得
-                'level': 'WARN',
+                'level': 'INFO',
                 'handlers': ['file'],
                 'propagate': False  # 如果为True（默认），会向上到root的logger都执行
             }

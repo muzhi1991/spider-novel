@@ -1,7 +1,5 @@
-## pip install fake-useragent
-from fake_useragent import UserAgent
-
-ua = UserAgent()
+## pip install user_agent
+from user_agent import generate_user_agent
 
 __ua_list__ = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.121 Safari/537.36",
@@ -25,5 +23,5 @@ __common_headers_m__ = {'User-Agent': __ua_list_m__[0],
 
 
 def get_session_common_headers():
-    __common_headers__['User-Agent'] = ua.random
+    __common_headers__['User-Agent'] = generate_user_agent()
     return __common_headers__

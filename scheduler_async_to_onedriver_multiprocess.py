@@ -775,17 +775,17 @@ class SpiderContentTask(SpiderTask):
                 continue
 
             try:
-                logger.warning("consumer {} step1".format(self.consumer_id))
+                logger.debug("consumer {} step1".format(self.consumer_id))
                 t, c = await SpiderTask.loop.run_in_executor(__GLOBAL_PROCESS_EXECUTOR__,
                                                              __spider_list__[
                                                                  spider_name].spider_parse_content,
                                                              book_url, content_url,
                                                              resp.content.decode('gbk'))
-                logger.warning("consumer {} step2".format(self.consumer_id))
+                logger.debug("consumer {} step2".format(self.consumer_id))
                 # t, c = __spider_list__[spider_name].spider_parse_content(book_url, content_url,
                 #                                                          resp.content)
             except Exception as e:
-                logger.warning("consumer {} step3".format(self.consumer_id))
+                logger.debug("consumer {} step3".format(self.consumer_id))
                 # logger.error(
                 #     "consumer {} - task {}:解析网页异常 content:{}".format(self.consumer_id, self.id,
                 #                                                      resp.content.decode("utf8")))
@@ -1368,8 +1368,8 @@ def _main():
 
 if __name__ == '__main__':
     # _main()
-    # spider
-    # start("./", "/root/OneDrive", progress=True, show_info=False, parallel=1000)
+    # online
+    # start("./", "/root/OneDrive", progress=True, debug=False,show_info=False, parallel=2000,start=6000
     # local test
     start("./", "./OneDrive",
           query_list=[{"book_url": "http://www.aoyuge.com/12/12610/index.html"}],

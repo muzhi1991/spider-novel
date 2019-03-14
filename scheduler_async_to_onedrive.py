@@ -35,7 +35,7 @@ from pathlib import Path
 
 __ORIGIN_TYPE_SPIDER__ = 2  # 凡是用网页爬虫的来源类型都定义为2
 
-__GLOBAL_EXECUTOR__ = ThreadPoolExecutor(max_workers=200)
+__GLOBAL_EXECUTOR__ = ThreadPoolExecutor(max_workers=1000)
 __GLOBAL_PROCESS_EXECUTOR_ZIP__ = ProcessPoolExecutor(max_workers=2)
 # __GLOBAL_FUTURE_REQUEST_SESSION__ = FuturesSession(executor=__GLOBAL_EXECUTOR__)
 
@@ -708,8 +708,8 @@ class SpiderContentTask(SpiderTask):
                 #         self.consumer_id, self.id))
                 #     failed_arg_chunks.append(task_arg)
 
-            # todo 随机睡眠，在生成task时分配这个值？还是在这直接诶搞
-            sleep_time = random.randint(40, 80)
+            # todo 随机睡眠，在生成task时分配这个值？还是在这直接诶搞 宝塔防火墙1s最多6次
+            sleep_time = random.randint(20, 30)
             logger.debug(
                 "consumer {} - task {}:睡眠了{}s".format(self.consumer_id, self.id, sleep_time))
             await asyncio.sleep(sleep_time)
@@ -872,8 +872,7 @@ class SpiderContentTask(SpiderTask):
                 text = ""
                 if resp:
                     text = resp.text
-                    raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
-
+                raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
         logger.debug(
             "consumer {} - task {} : start_spider_content from m site -- "
             "Result: 爬到标题：{}".format(self.consumer_id, self.id, t))
@@ -1107,7 +1106,7 @@ async def producer(task_q, query_list, loop, executor, only_detail=False):
     # Add some numbers to the queue to simulate jobs
     start = 0
     end = 0
-    chunk_size = 10
+    chunk_size = 1000
     if only_detail:
         chunk_size = 10000
     while start < len(query_list):
@@ -1358,8 +1357,8 @@ def _main():
 
 if __name__ == '__main__':
     # _main()
-    # spider
-    # start("./", "/root/OneDrive", progress=True, show_info=False, parallel=1000)
+    # online
+    # start("./", "/root/OneDrive", progress=True, show_info=False, parallel=1500,start=0,end=6000)
     # local testcheck need to restart
     start("./", "./OneDrive",
           query_list=[{"book_url": "http://www.aoyuge.com/12/12610/index.html"}],

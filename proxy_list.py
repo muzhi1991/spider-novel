@@ -94,12 +94,17 @@ def get_proxy_pool(num):
 #     return {}
 def get_proxy_avaliable():
     global proxy_list_iter
-    res = next(proxy_list_iter, None)
-    if res is None:
-        proxy_list_iter = filter(lambda p: p['anonymity'] == 'high_anonymous',
-                                 load_proxy_file())
-        res = next(proxy_list_iter, {})  # 默认给个空
-    return convert_to_request_proxy(res)
+    try:
+        res = next(proxy_list_iter, None)
+        if res is None:
+            proxy_list_iter = filter(lambda p: p['anonymity'] == 'high_anonymous',
+                                     load_proxy_file())
+            res = next(proxy_list_iter, {})  # 默认给个空
+        return convert_to_request_proxy(res)
+    except Exception as e:
+        logging.exception("不应该出现异常："+str(e))
+        return {}
+
 
 
 def refresh_proxy_pool(pool, index=-1, force=False):
