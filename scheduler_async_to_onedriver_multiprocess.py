@@ -125,6 +125,11 @@ class ProxyAvailableException(MyException):
         super().__init__(message, Exception("need to proxy switch"), *args, **kwargs)
 
 
+class ReLocationException(MyException):
+    def __init__(self, message, *args, **kwargs):
+        super().__init__(message, Exception("need to proxy switch"), *args, **kwargs)
+
+
 class SpiderTask:
     loop = None
     executor = None
@@ -639,26 +644,38 @@ class SpiderContentTask(SpiderTask):
             #                                              self.consumer_id, self.id))
             t = None
             c = None
+            new_url = None
             try:
                 (t, c) = await self.spider_content(session, spider_name, content_url, book_url,
                                                    proxy)
             except requests.exceptions.RequestException as e:
                 logger.info(
                     "网络请求连接错误: content_url:{} error:{} proxy:{}".format(content_url, str(e), proxy))
+            except ReLocationException as e:
+                (new_url, wait_time) = e.args
+                logger.info(
+                    "网络请求重定向: new_content_url:{} proxy:{}".format(new_url, proxy))
+
             except Exception as e:
                 logger.exception(
                     "consumer {} - task {}: SpiderContentTask -- {} 其他异常Error:".format(
                         self.consumer_id,
                         self.id, e,
                         content_url))
+
             # if t is None or c is None:
             #     (t, c) = await self.try_m_site_safe(session, spider_name, content_url, book_url,
             #                                         proxy)
             if t is None or c is None:
                 # 代理问题切换爬虫重试
-                logger.warning("consumer {} - task {}: Content爬虫执行错误，换proxy重试，重新放入queue".format(
-                    self.consumer_id, self.id))
-                failed_arg_chunks.append(task_arg)
+                if new_url is None:
+                    logger.warning("consumer {} - task {}: Content爬虫执行错误，换proxy重试，重新放入queue".format(
+                        self.consumer_id, self.id))
+                    failed_arg_chunks.append(task_arg)
+                else:
+                    spider_success_cnt += 1
+                    failed_arg_chunks.append(
+                        (book_dir_path, spider_name, chapter_id, chapter_title, new_url, book_url))
             else:
                 spider_success_cnt += 1
                 # 提交内容
@@ -731,7 +748,7 @@ class SpiderContentTask(SpiderTask):
         try_num = 1
         last_exception = None
         resp = None
-        while try_num <= 2 and (t is None or c is None):
+        while try_num <= 1 and (t is None or c is None):
             try:
                 resp = await self.request_url_async(session, content_url, proxy,
                                                     {"Referer": book_url,
@@ -781,9 +798,31 @@ class SpiderContentTask(SpiderTask):
                 raise last_exception
             else:
                 text = ""
+                location_url = ""
                 if resp:
                     text = resp.text
-                raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
+                    location_url = __spider_list__[spider_name].spider_parse_location(book_url,
+                                                                                      content_url,
+                                                                                      text)
+                    if location_url:
+                        try:
+                            await asyncio.sleep(3)
+                            resp = await self.request_url_async(session, location_url, proxy,
+                                                                {"Referer": book_url,
+                                                                 "Cache-Control": "max-age=0"})
+                            t, c = __spider_list__[spider_name].spider_parse_content(book_url,
+                                                                                     content_url,
+                                                                                     resp.content)
+                            if not t or not c:
+                                raise Exception("not right")
+                        except Exception as e:
+                            raise ReLocationException("解析到调跳转", location_url, 5)
+                            last_exception = e
+                        # if location_url:
+                        #     raise ReLocationException("解析到调跳转", location_url, 5)
+                    else:
+                        raise Exception("标题内容可能是空，比如网页返回的有跳转:{}".format(text))
+
         logger.debug(
             "consumer {} - task {} : start_spider_content -- "
             "Result: 爬到标题：{}".format(self.consumer_id, self.id, t))
@@ -1160,12 +1199,14 @@ async def main(loop, query_list, parallel=100, only_detail=False):
                     logger.warning("main loop: customer {}正常退出，未重启，信息：{}"
                                    .format(consumer_id, res))
                 except ProxyAvailableException as e:
-                    logger.debug("!!!!state1:{}".format(e.args))
+                    logger.warning("main loop: !!!!state1:{}".format(e.args))
                     proxy_switch_cnt += 1
                     (error_cnt, total_cnt) = e.args
                     error_task_unique += error_cnt
                     total_task_unique += total_cnt
+                    logger.warning("main loop: !!!!state2")
                     new_proxy = proxy_list.get_proxy_avaliable()
+                    logger.warning("main loop: !!!!state3")
                     new_consumer = consumer(consumer_id, task_q, new_proxy)
                     new_consumer_task = loop.create_task(new_consumer)
                     logger.warning(
@@ -1294,7 +1335,7 @@ def start(base_path, one_driver_path, query_list=None, parallel=100, start=0, en
     if not progress:
         StatusMonitor.flag = False
     else:
-        logging.getLogger().disabled = True
+        logging.getLogger().disabled = False
     if query_list is None:
         query_list = __query_list__
     logger.info("ready_start.......")
