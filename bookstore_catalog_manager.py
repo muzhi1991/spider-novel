@@ -78,18 +78,12 @@ class BookCatalogManager:
 
         for line in BookCatalogManager.done_file:
             if line:
-                arr = line.split()
-                book_rel_path = None
-                if len(arr) == 1:
-                    book_rel_path = arr[0]
+                book_rel_path = line.strip()
                 if book_rel_path:
                     BookCatalogManager.done.add(book_rel_path)
         for line in BookCatalogManager.onedrive_file:
             if line:
-                arr = line.split()
-                book_rel_path = None
-                if len(arr) == 1:
-                    book_rel_path = arr[0]
+                book_rel_path = line.strip()
                 if book_rel_path:
                     BookCatalogManager.onedrive.add(book_rel_path)
 
@@ -320,6 +314,11 @@ if __name__ == "__main__":
     import time
 
     started_at = time.monotonic()
-    print(BookCatalogManager.get_all_stat_cnt(query_list=[{"book_url": "http://www.aoyuge.com/12/12610/index.html"}]))
+    print(BookCatalogManager.get_all_stat_cnt(query_list=[{"book_url": "http://www.aoyuge.com/34/34744/index.html"}]))
+    total_slept_for = time.monotonic() - started_at
+    print(total_slept_for)
+
+    started_at = time.monotonic()
+    print(BookCatalogManager.get_all_stat_cnt())
     total_slept_for = time.monotonic() - started_at
     print(total_slept_for)
